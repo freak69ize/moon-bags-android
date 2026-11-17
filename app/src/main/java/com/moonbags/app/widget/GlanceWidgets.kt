@@ -22,6 +22,7 @@ import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.action.ActionCallback
+import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.lazy.LazyColumn
 import androidx.glance.appwidget.lazy.items
@@ -252,7 +253,7 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, body: @Composable () 
                     Image(
                         provider = ImageProvider(if (snap.hidden) R.drawable.ic_eye_off else R.drawable.ic_eye),
                         contentDescription = "Toggle privacy",
-                        modifier = GlanceModifier.size(18.dp).clickable(actionRunCallback()),
+                        modifier = GlanceModifier.size(18.dp).clickable(privacyClick()),
                     )
                 }
                 Image(
@@ -266,8 +267,8 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, body: @Composable () 
     }
 }
 
-private fun refreshClick() = androidx.glance.action.actionRunCallback<RefreshAction>()
-private fun actionRunCallback() = androidx.glance.action.actionRunCallback<TogglePrivacyAction>()
+private fun refreshClick() = actionRunCallback<RefreshAction>()
+private fun privacyClick() = actionRunCallback<TogglePrivacyAction>()
 
 class TotalMarketCapWidget : GlanceAppWidget() {
     override val sizeMode = SizeMode.Responsive(
