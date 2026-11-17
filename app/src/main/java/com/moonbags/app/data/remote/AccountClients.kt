@@ -8,7 +8,9 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.math.BigInteger
 
 data class RemoteBalance(val symbol: String, val amount: Double, val coinId: String, val source: String, val label: String)
@@ -100,7 +102,10 @@ class AccountClients {
     private fun rpcRaw(url: String, method: String, params: String): JsonObject {
         val request = Request.Builder()
             .url(url)
-            .post(okhttp3.RequestBody.create("application/json".toMediaType(), """{"jsonrpc":"2.0","id":1,"method":"$method","params":$params}"""))
+            .post(
+                """{"jsonrpc":"2.0","id":1,"method":"$method","params":$params}"""
+                    .toRequestBody("application/json".toMediaType()),
+            )
             .build()
         val text = execute(request)
         return MoonJson.json.parseToJsonElement(text).jsonObject
@@ -114,8 +119,6 @@ class AccountClients {
         val frac = value.remainder(base)
         return whole.toDouble() + frac.toDouble() / base.toDouble()
     }
-
-    private fun String.toMediaType() = okhttp3.MediaType.get(this)
 }
 
 @Serializable
