@@ -1,0 +1,4 @@
+-keepattributes *Annotation*, InnerClasses, Signature, EnclosingMethod
+-keepclassmembers class kotlinx.serialization.json.** { *** Companion; }
+-keepclasseswithmembers class com.moonbags.app.**$$serializer { *; }
+-dontwarn javax.annotation.**
