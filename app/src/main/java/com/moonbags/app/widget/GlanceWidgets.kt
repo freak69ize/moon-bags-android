@@ -35,13 +35,13 @@ import androidx.glance.background
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
 import androidx.glance.layout.Column
+import androidx.glance.layout.ColumnScope
 import androidx.glance.layout.ContentScale
 import androidx.glance.layout.Row
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
 import androidx.glance.layout.padding
-import androidx.glance.layout.defaultWeight
 import androidx.glance.layout.size
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
@@ -261,7 +261,7 @@ fun sparkBitmap(values: List<Double>, up: Boolean): Bitmap {
 }
 
 @Composable
-private fun Chrome(snap: WidgetSnap, eye: Boolean = false, body: @Composable () -> Unit) {
+private fun Chrome(snap: WidgetSnap, eye: Boolean = false, body: @Composable ColumnScope.() -> Unit) {
     val context = LocalContext.current
     val open = if (snap.tapPackage.isBlank()) {
         null
@@ -313,7 +313,7 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, body: @Composable () 
 }
 
 @Composable
-private fun OpenBody(open: Action?, body: @Composable () -> Unit) {
+private fun ColumnScope.OpenBody(open: Action?, body: @Composable ColumnScope.() -> Unit) {
     val modifier = GlanceModifier.fillMaxWidth().defaultWeight()
     if (open == null) {
         Column(modifier) { body() }
