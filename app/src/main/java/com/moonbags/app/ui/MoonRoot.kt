@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -45,6 +46,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,6 +57,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -170,34 +173,8 @@ private fun TapePage(state: DeskState, vm: MoonViewModel) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 64.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             state.error?.let { Text(it, color = Down) }
             state.quotes.filter { it.coinId in watch }.forEach { quote ->
-                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(Color.White), contentAlignment = Alignment.Center) {
-                        if (!quote.imageUrl.isNullOrBlank()) {
-                            AsyncImage(model = quote.imageUrl, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                        } else {
-                            Text(quote.symbol.take(1), color = Color.Black, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(quote.name, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, modifier = Modifier.weight(1f))
-                            Text(spotLabel(quote.price, currency), color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
-                        }
-                        Text(
-                            spotLabel(quote.price, currency) + (if (quote.change24h >= 0) "  ▲  " else "  ▼  ") + quote.symbol + "  " + CompactMoney.format(quote.marketCap, currency),
-                            color = if (quote.change24h >= 0) Color(0xFF3DDC84) else sub,
-                            fontSize = 13.sp,
-                        )
-                    }
-                    Text(
-                        "Remove",
-                        color = sub,
-                        fontSize = 11.sp,
-                        modifier = Modifier.clickable {
-                            vm.patch { it.copy(watchIds = watch.filterNot { id -> id == quote.coinId }.joinToString(",")) }
-                        }.padding(start = 8.dp),
-                    )
+                WatchedRow(quote, currency, sub) {
+                    vm.patch { it.copy(watchIds = watch.filterNot { id -> id == quote.coinId }.joinToString(",")) }
                 }
             }
         }
@@ -205,19 +182,31 @@ private fun TapePage(state: DeskState, vm: MoonViewModel) {
             Column(
                 Modifier.align(Alignment.BottomCenter).padding(start = 16.dp, end = 16.dp, bottom = 84.dp).clip(RoundedCornerShape(16.dp)).background(Card).padding(vertical = 4.dp),
             ) {
-                hits.take(6).forEach { hit ->
-                    Text(
-                        "${hit.name}   ${hit.symbol.uppercase()}",
-                        color = Color.White,
-                        modifier = Modifier.fillMaxWidth().clickable {
-                            val ids = watch.toMutableList()
-                            if (hit.id !in ids) ids += hit.id
-                            vm.patch { settings -> settings.copy(watchIds = ids.joinToString(",")) }
-                            vm.refresh()
+                hits.take(8).forEach { hit ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable {
+                            vm.addWatched(hit)
                             query = ""
                             hits = emptyList()
-                        }.padding(horizontal = 16.dp, vertical = 10.dp),
-                    )
+                        }.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(Color.White), contentAlignment = Alignment.Center) {
+                            if (hit.image.isNotBlank()) {
+                                AsyncImage(model = hit.image, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                            } else {
+                                Text(hit.symbol.take(1), color = Color.Black)
+                            }
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text(hit.name, color = Color.White, fontWeight = FontWeight.SemiBold)
+                                Text(spotLabel(hit.price, currency), color = Color.White)
+                            }
+                            Text(hit.symbol.uppercase() + "  " + CompactMoney.format(hit.marketCap, currency) + if (hit.chain.isBlank()) "" else "  " + hit.chain, color = sub, fontSize = 12.sp)
+                        }
+                    }
                 }
             }
         }
@@ -226,10 +215,10 @@ private fun TapePage(state: DeskState, vm: MoonViewModel) {
                 value = query,
                 onValueChange = {
                     query = it
-                    scope.launch { hits = if (it.trim().length < 2) emptyList() else runCatching { vm.searchMemes(it, "all") }.getOrDefault(emptyList()) }
+                    scope.launch { hits = if (it.trim().length < 2) emptyList() else runCatching { vm.search(it) }.getOrDefault(emptyList()) }
                 },
                 modifier = Modifier.weight(1f),
-                placeholder = { Text("Crypto, news and more") },
+                placeholder = { Text("Search Crypto") },
                 singleLine = true,
                 shape = CircleShape,
                 colors = androidx.compose.material3.TextFieldDefaults.colors(
@@ -249,7 +238,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel) {
                     GmsBarcodeScanning.getClient(context, options).startScan()
                         .addOnSuccessListener { barcode ->
                             query = barcode.rawValue.orEmpty()
-                            scope.launch { hits = if (query.length < 2) emptyList() else runCatching { vm.searchMemes(query, "all") }.getOrDefault(emptyList()) }
+                            scope.launch { hits = if (query.length < 2) emptyList() else runCatching { vm.search(query) }.getOrDefault(emptyList()) }
                         }
                 },
                 contentAlignment = Alignment.Center,
@@ -262,7 +251,69 @@ private fun TapePage(state: DeskState, vm: MoonViewModel) {
 
 private fun spotLabel(price: Double, currency: String) = if (price > 0 && price < 0.01) "<$0.01" else CompactMoney.format(price, currency)
 
+@Composable
+private fun WatchedRow(quote: QuoteEntity, currency: String, sub: Color, onRemove: () -> Unit) {
+    var drag by remember(quote.coinId) { mutableFloatStateOf(0f) }
+    Box(Modifier.fillMaxWidth()) {
+        Text("Remove", color = Color(0xFFFF5A6A), modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp))
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .offset { androidx.compose.ui.unit.IntOffset(drag.roundToInt(), 0) }
+                .background(Color(0xFF1C1C1E))
+                .padding(vertical = 10.dp)
+                .pointerInput(quote.coinId) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            if (drag > 90f) onRemove()
+                            drag = 0f
+                        },
+                        onHorizontalDrag = { _, amount -> drag = (drag + amount).coerceIn(0f, 160f) },
+                    )
+                },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(Color.White), contentAlignment = Alignment.Center) {
+                if (!quote.imageUrl.isNullOrBlank()) {
+                    AsyncImage(model = quote.imageUrl, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                } else {
+                    Text(quote.symbol.take(1), color = Color.Black, fontWeight = FontWeight.Bold)
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(quote.name, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, modifier = Modifier.weight(1f))
+                    Text(spotLabel(quote.price, currency), color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
+                }
+                Text(
+                    spotLabel(quote.price, currency) + (if (quote.change24h >= 0) "  ▲  " else "  ▼  ") + quote.symbol + "  " + CompactMoney.format(quote.marketCap, currency),
+                    color = sub,
+                    fontSize = 13.sp,
+                )
+            }
+        }
+    }
+}
+
 private fun parseHex(hex: String): Color = runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrDefault(Color(0xFF8E8E93))
+
+@Composable
+private fun ColorPicker(hex: String, onChange: (String) -> Unit) {
+    val color = parseHex(hex)
+    val hsv = remember(hex) {
+        FloatArray(3).also { android.graphics.Color.colorToHSV(color.toArgb(), it) }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Box(Modifier.size(28.dp).clip(CircleShape).background(color))
+        ThinSlider("Hue", hsv[0], 0f..360f, color, Color(0xFF8E8E93)) { hue ->
+            onChange(String.format("#%06X", 0xFFFFFF and android.graphics.Color.HSVToColor(floatArrayOf(hue, hsv[1].coerceAtLeast(0.15f), hsv[2].coerceIn(0.25f, 0.95f)))))
+        }
+        ThinSlider("Light", hsv[2], 0.15f..0.95f, color, Color(0xFF8E8E93)) { light ->
+            onChange(String.format("#%06X", 0xFFFFFF and android.graphics.Color.HSVToColor(floatArrayOf(hsv[0], hsv[1].coerceAtLeast(0.15f), light))))
+        }
+    }
+}
 
 @Composable
 private fun ThinSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, color: Color, sub: Color, onChange: (Float) -> Unit) {
@@ -308,8 +359,6 @@ private fun QuoteRow(quote: QuoteEntity, currency: String, onRemove: () -> Unit)
 
 @Composable
 private fun StudioPage(state: DeskState, vm: MoonViewModel) {
-    Text("Drop a widget on the home screen. Tune it here. GIFs loop in this preview and become a still frame on the launcher.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-    MemePicker(state, vm)
     var pendingId by remember { mutableIntStateOf(-1) }
     val picker = rememberLauncherForActivityResult(PickVisualMedia()) { uri ->
         val config = state.widgets.find { it.appWidgetId == pendingId }
@@ -557,9 +606,10 @@ private fun SettingsPage(state: DeskState, vm: MoonViewModel, menu: String, onMe
                 Text("Material You", color = Color.White)
                 Switch(checked = settings.materialYou, onCheckedChange = { checked -> vm.patch { it.copy(materialYou = checked) } })
             }
-            Text("Slider and subtext colors are hex values you can edit.", color = sub, fontSize = 12.sp)
-            OutlinedTextField(settings.sliderColor, { value -> vm.patch { it.copy(sliderColor = value) } }, label = { Text("Slider color") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(settings.subtextColor, { value -> vm.patch { it.copy(subtextColor = value) } }, label = { Text("Subtext color") }, modifier = Modifier.fillMaxWidth())
+            Text("Slider color", color = Color.White)
+            ColorPicker(settings.sliderColor) { value -> vm.patch { it.copy(sliderColor = value) } }
+            Text("Subtext color", color = Color.White)
+            ColorPicker(settings.subtextColor) { value -> vm.patch { it.copy(subtextColor = value) } }
             ThinSlider("Glass", settings.glass, 0f..0.8f, slider, sub) { value -> vm.patch { it.copy(glass = value) } }
             ThinSlider("Corners", settings.radiusDp.toFloat(), 8f..32f, slider, sub) { value -> vm.patch { it.copy(radiusDp = value.toInt()) } }
             ThinSlider("Type", settings.fontScale, 0.9f..1.2f, slider, sub) { value -> vm.patch { it.copy(fontScale = value) } }

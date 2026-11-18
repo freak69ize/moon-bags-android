@@ -47,6 +47,9 @@ data class SearchCoinDto(
     val name: String = "",
     val chain: String = "",
     val marketCap: Double = 0.0,
+    val price: Double = 0.0,
+    val image: String = "",
+    val change24h: Double = 0.0,
 )
 
 @Serializable

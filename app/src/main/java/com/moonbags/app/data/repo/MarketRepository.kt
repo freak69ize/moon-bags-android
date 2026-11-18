@@ -26,8 +26,45 @@ class MarketRepository(
     private val secrets: SecureCredentialStore,
     private val accounts: AccountClients = AccountClients(),
 ) {
-    suspend fun search(query: String): List<SearchCoinDto> = withContext(Dispatchers.IO) {
-        HttpClients.gecko.search(query).coins.take(8)
+    suspend fun remember(hit: SearchCoinDto, currency: String) = withContext(Dispatchers.IO) {
+        if (hit.id.startsWith("cmc-") || hit.id.startsWith("dex")) {
+            pinMeme(hit, currency)
+            return@withContext
+        }
+        db.market().upsertQuotes(
+            listOf(
+                QuoteEntity(
+                    coinId = hit.id,
+                    symbol = hit.symbol.uppercase(),
+                    name = hit.name,
+                    price = hit.price,
+                    marketCap = hit.marketCap,
+                    change24h = hit.change24h,
+                    sparkline = "",
+                    imageUrl = hit.image.ifBlank { null },
+                    currency = currency.lowercase(),
+                    updatedAt = System.currentTimeMillis(),
+                ),
+            ),
+        )
+    }
+
+    suspend fun searchTape(query: String): List<SearchCoinDto> = withContext(Dispatchers.IO) {
+        val memes = runCatching { searchMemes(query, "all") }.getOrDefault(emptyList())
+        val found = runCatching { HttpClients.gecko.search(query).coins.take(8) }.getOrDefault(emptyList())
+        val ids = found.map { it.id }.filter { it.isNotBlank() }
+        val markets = if (ids.isEmpty()) emptyList() else runCatching { HttpClients.gecko.markets("usd", ids.joinToString(",")) }.getOrDefault(emptyList())
+        val priced = found.map { hit ->
+            val row = markets.find { it.id == hit.id }
+            hit.copy(
+                symbol = hit.symbol.uppercase(),
+                price = row?.currentPrice ?: hit.price,
+                marketCap = row?.marketCap ?: hit.marketCap,
+                image = row?.image ?: hit.image,
+                change24h = row?.change24h ?: hit.change24h,
+            )
+        }
+        (memes + priced).distinctBy { it.id }.take(12)
     }
 
     suspend fun searchMemes(query: String, chain: String): List<SearchCoinDto> = withContext(Dispatchers.IO) {
@@ -50,7 +87,7 @@ class MarketRepository(
                     coinId = row.id,
                     symbol = row.symbol.uppercase(),
                     name = row.name,
-                    price = 0.0,
+                    price = hit.price,
                     marketCap = row.marketCap,
                     change24h = 0.0,
                     sparkline = spark,
@@ -64,7 +101,8 @@ class MarketRepository(
 
     suspend fun refresh(currency: String, watchIds: List<String>) = withContext(Dispatchers.IO) {
         val fiat = currency.lowercase()
-        val ids = (watchIds + AssetIds.bySymbol.values).distinct().joinToString(",")
+        val geckoIds = (watchIds.filter { !it.startsWith("cmc-") && !it.startsWith("dex") } + AssetIds.bySymbol.values).distinct()
+        val ids = geckoIds.joinToString(",")
         val global = HttpClients.gecko.global().data
         db.market().upsertGlobal(
             GlobalEntity(

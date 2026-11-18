@@ -247,13 +247,9 @@ fun sparkBitmap(values: List<Double>, up: Boolean): Bitmap {
     val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         this.color = color
         style = Paint.Style.STROKE
-        strokeWidth = 8f
+        strokeWidth = 3.5f
         strokeJoin = Paint.Join.ROUND
         strokeCap = Paint.Cap.ROUND
-    }
-    val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        this.color = if (up) 0x553DDC84 else 0x55FF4D4D
-        style = Paint.Style.FILL
     }
     val path = Path()
     values.forEachIndexed { index, value ->
@@ -261,18 +257,13 @@ fun sparkBitmap(values: List<Double>, up: Boolean): Bitmap {
         val y = ((1f - ((value - min) / (max - min)).toFloat()) * (height - 8f)) + 4f
         if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
     }
-    val area = Path(path)
-    area.lineTo(width.toFloat(), height.toFloat())
-    area.lineTo(0f, height.toFloat())
-    area.close()
     val canvas = Canvas(bitmap)
-    canvas.drawPath(area, fill)
     canvas.drawPath(path, stroke)
     return bitmap
 }
 
 @Composable
-private fun Chrome(snap: WidgetSnap, eye: Boolean = false, body: @Composable ColumnScope.() -> Unit) {
+private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = true, body: @Composable ColumnScope.() -> Unit) {
     val context = LocalContext.current
     val open = if (snap.tapPackage.isBlank()) {
         null
@@ -306,11 +297,14 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, body: @Composable Col
             Box(modifier = GlanceModifier.fillMaxSize().background(ColorProvider(veil))) {}
         }
         Column(modifier = GlanceModifier.fillMaxSize().padding(10.dp)) {
+            if (showTitle) {
             Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    snap.title,
-                    style = TextStyle(color = ColorProvider(Brass), fontSize = 11.sp, fontWeight = FontWeight.Medium),
-                )
+                if (snap.title.isNotBlank()) {
+                    Text(
+                        snap.title,
+                        style = TextStyle(color = ColorProvider(Brass), fontSize = 11.sp, fontWeight = FontWeight.Medium),
+                    )
+                }
                 if (eye) {
                     Image(
                         provider = ImageProvider(if (snap.hidden) R.drawable.ic_eye_off else R.drawable.ic_eye),
@@ -323,6 +317,7 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, body: @Composable Col
                     contentDescription = "Refresh",
                     modifier = GlanceModifier.size(18.dp).clickable(refreshClick()),
                 )
+            }
             }
             OpenBody(open, body)
         }
@@ -350,23 +345,32 @@ class TotalMarketCapWidget : GlanceAppWidget() {
         val chart = sparkBitmap(snap.spark, snap.up)
         provideContent {
             val height = LocalSize.current.height
-            Chrome(snap) {
-                Text(
-                    snap.primary,
-                    style = TextStyle(
-                        color = ColorProvider(Paper),
-                        fontSize = when {
-                            height < 80.dp -> 18.sp
-                            height < 150.dp -> 28.sp
-                            else -> 40.sp
-                        },
-                        fontWeight = FontWeight.Bold,
-                    ),
-                )
-                Text(
-                    snap.secondary + " 24h",
-                    style = TextStyle(color = ColorProvider(if (snap.up) UpColor else DownColor), fontSize = 13.sp),
-                )
+            Chrome(snap, showTitle = false) {
+                Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column {
+                        Text(
+                            snap.primary,
+                            style = TextStyle(
+                                color = ColorProvider(Paper),
+                                fontSize = when {
+                                    height < 80.dp -> 18.sp
+                                    height < 150.dp -> 28.sp
+                                    else -> 40.sp
+                                },
+                                fontWeight = FontWeight.Bold,
+                            ),
+                        )
+                        Text(
+                            snap.secondary + " 24h",
+                            style = TextStyle(color = ColorProvider(if (snap.up) UpColor else DownColor), fontSize = 13.sp),
+                        )
+                    }
+                    Image(
+                        provider = ImageProvider(R.drawable.ic_refresh),
+                        contentDescription = "Refresh",
+                        modifier = GlanceModifier.size(18.dp).clickable(refreshClick()),
+                    )
+                }
                 if (snap.spark.size > 1) {
                     Image(
                         provider = ImageProvider(chart),

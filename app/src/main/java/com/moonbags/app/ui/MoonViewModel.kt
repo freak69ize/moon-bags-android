@@ -120,9 +120,20 @@ class MoonViewModel(app: Application) : AndroidViewModel(app) {
         notice.value = "Exchange keys cleared"
     }
 
-    suspend fun search(query: String): List<SearchCoinDto> = graph.market.search(query)
+    suspend fun search(query: String): List<SearchCoinDto> = graph.market.searchTape(query)
 
     suspend fun searchMemes(query: String, chain: String): List<SearchCoinDto> = graph.market.searchMemes(query, chain)
+
+    fun addWatched(hit: SearchCoinDto) = launchIo("Added ${hit.symbol}") {
+        val currency = graph.settings.flow.first().currency
+        graph.market.remember(hit, currency)
+        graph.settings.update { settings ->
+            val ids = settings.watchIds.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toMutableList()
+            if (hit.id !in ids) ids += hit.id
+            settings.copy(watchIds = ids.joinToString(","))
+        }
+        refreshQuiet()
+    }
 
     fun pinMeme(config: WidgetConfigEntity, hit: SearchCoinDto) = launchIo("Added ${hit.symbol}") {
         val currency = graph.settings.flow.first().currency
