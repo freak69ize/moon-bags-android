@@ -27,6 +27,7 @@ data class UserSettings(
     val settingsDim: Float = 0.45f,
     val hideBalances: Boolean = false,
     val watchIds: String = "bitcoin,ethereum,solana,dogecoin",
+    val tapPackage: String = "",
 )
 
 class SettingsStore(private val context: Context) {
@@ -46,6 +47,7 @@ class SettingsStore(private val context: Context) {
             settingsDim = prefs[Keys.settingsDim] ?: 0.45f,
             hideBalances = prefs[Keys.hide] ?: false,
             watchIds = prefs[Keys.watch] ?: "bitcoin,ethereum,solana,dogecoin",
+            tapPackage = prefs[Keys.tapPackage] ?: "",
         )
     }
 
@@ -67,6 +69,7 @@ class SettingsStore(private val context: Context) {
                     settingsDim = prefs[Keys.settingsDim] ?: 0.45f,
                     hideBalances = prefs[Keys.hide] ?: false,
                     watchIds = prefs[Keys.watch] ?: "bitcoin,ethereum,solana,dogecoin",
+                    tapPackage = prefs[Keys.tapPackage] ?: "",
                 ),
             )
             prefs[Keys.currency] = next.currency
@@ -83,6 +86,7 @@ class SettingsStore(private val context: Context) {
             prefs[Keys.settingsDim] = next.settingsDim
             prefs[Keys.hide] = next.hideBalances
             prefs[Keys.watch] = next.watchIds
+            prefs[Keys.tapPackage] = next.tapPackage
         }
     }
 
@@ -101,5 +105,6 @@ class SettingsStore(private val context: Context) {
         val settingsDim = floatPreferencesKey("settings_dim")
         val hide = booleanPreferencesKey("hide")
         val watch = stringPreferencesKey("watch")
+        val tapPackage = stringPreferencesKey("tap_package")
     }
 }

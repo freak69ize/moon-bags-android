@@ -16,8 +16,8 @@ val Paper = Color(0xFFEFE8DC)
 val Brass = Color(0xFFD4A24A)
 val BrassInk = Color(0xFF3A2A10)
 val Panel = Color(0xFF1B2430)
-val Up = Color(0xFF7DCEA0)
-val Down = Color(0xFFE07A68)
+val Up = Color(0xFF3DDC84)
+val Down = Color(0xFFFF4D4D)
 
 private val InkScheme = darkColorScheme(
     primary = Brass,

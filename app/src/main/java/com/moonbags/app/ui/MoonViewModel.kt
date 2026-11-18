@@ -84,6 +84,7 @@ class MoonViewModel(app: Application) : AndroidViewModel(app) {
             graph.settings.update(transform)
             val interval = graph.settings.flow.first().intervalMin
             (getApplication<MoonBagsApp>()).scheduleSync(interval.toLong())
+            updateAllWidgets(getApplication())
         }
     }
 

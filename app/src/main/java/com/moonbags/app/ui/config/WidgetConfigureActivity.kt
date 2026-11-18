@@ -74,6 +74,7 @@ private fun ConfigureForm(appWidgetId: Int, kind: String, onDone: (Boolean) -> U
     var coinId by remember { mutableStateOf(quotes.firstOrNull()?.coinId ?: "bitcoin") }
     var showPrice by remember { mutableStateOf(kind == WidgetKinds.PILL || kind == WidgetKinds.SPARK) }
     var scrim by remember { mutableFloatStateOf(0.55f) }
+    var alpha by remember { mutableFloatStateOf(0.7f) }
     var path by remember { mutableStateOf<String?>(null) }
     val picker = rememberLauncherForActivityResult(PickVisualMedia()) { uri ->
         if (uri != null) path = graph.media.import(uri, "widget-$appWidgetId").path
@@ -103,6 +104,8 @@ private fun ConfigureForm(appWidgetId: Int, kind: String, onDone: (Boolean) -> U
                 Switch(checked = showPrice, onCheckedChange = { showPrice = it })
             }
         }
+        Text("Transparency ${((1f - alpha) * 100).toInt()}%")
+        Slider(value = 1f - alpha, onValueChange = { alpha = (1f - it).coerceIn(0.15f, 1f) }, valueRange = 0f..0.85f)
         Text("Scrim ${(scrim * 100).toInt()}%")
         Slider(value = scrim, onValueChange = { scrim = it }, valueRange = 0f..0.9f)
         OutlinedButton(onClick = { picker.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly)) }, modifier = Modifier.fillMaxWidth()) {
@@ -120,6 +123,7 @@ private fun ConfigureForm(appWidgetId: Int, kind: String, onDone: (Boolean) -> U
                             backgroundPath = path,
                             scrim = scrim,
                             hidden = false,
+                            alpha = alpha,
                         ),
                     )
                     updateWidget(context, kind, appWidgetId)

@@ -1,9 +1,9 @@
 package com.moonbags.app.ui
 
-import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -45,8 +46,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -126,21 +129,31 @@ fun MoonRoot(vm: MoonViewModel) {
                 }
             },
         ) { padding ->
-            Column(
-                Modifier
-                    .padding(padding)
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                state.notice?.let { Text(it, color = Brass) }
-                when (tab) {
-                    Tab.Market -> MarketPage(state, vm)
-                    Tab.Studio -> StudioPage(state, vm)
-                    Tab.Bags -> BagsPage(state, vm)
-                    Tab.Settings -> SettingsPage(state, vm)
+            Box(Modifier.padding(padding).fillMaxSize()) {
+                if (tab == Tab.Settings && !state.settings.settingsPath.isNullOrBlank()) {
+                    AsyncImage(
+                        model = File(state.settings.settingsPath),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
+                    )
+                    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = state.settings.settingsDim.coerceIn(0.05f, 0.85f))))
+                }
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 20.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    state.notice?.let { Text(it, color = Brass) }
+                    when (tab) {
+                        Tab.Market -> MarketPage(state, vm)
+                        Tab.Studio -> StudioPage(state, vm)
+                        Tab.Bags -> BagsPage(state, vm)
+                        Tab.Settings -> SettingsPage(state, vm)
+                    }
                 }
             }
         }
@@ -233,18 +246,36 @@ private fun StudioPage(state: DeskState, vm: MoonViewModel) {
     }
     state.widgets.forEach { config ->
         val snap = render(config, state.settings.currency, state.settings.hideBalances, state.global, state.quotes, state.holdings, null)
-        Box(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(state.settings.radiusDp.dp)).padding(16.dp)) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = config.alpha), RoundedCornerShape(state.settings.radiusDp.dp))
+                .padding(16.dp),
+        ) {
             if (!config.backgroundPath.isNullOrBlank()) {
-                AsyncImage(model = File(config.backgroundPath), contentDescription = null, modifier = Modifier.matchParentSize(), contentScale = ContentScale.Crop)
-                Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = config.scrim)))
+                AsyncImage(
+                    model = File(config.backgroundPath),
+                    contentDescription = null,
+                    modifier = Modifier.matchParentSize(),
+                    contentScale = ContentScale.Crop,
+                    alpha = config.alpha,
+                )
+                Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = config.scrim * config.alpha)))
             }
             Column {
                 Text(snap.title, color = Brass)
                 Text(snap.primary, fontFamily = FontFamily.Serif, style = MaterialTheme.typography.headlineMedium)
                 Text(snap.secondary, color = if (snap.up) Up else Down)
+                TrendLine(snap.spark, snap.up)
                 snap.lines.forEach { Text("${it.first}  ${it.second}") }
             }
         }
+        Text("Transparency ${((1f - config.alpha) * 100).toInt()}%")
+        Slider(
+            value = 1f - config.alpha,
+            onValueChange = { vm.updateWidgetConfig(config.copy(alpha = (1f - it).coerceIn(0.15f, 1f))) },
+            valueRange = 0f..0.85f,
+        )
         if (config.kind == WidgetKinds.TILE) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Spot price instead of cap")
@@ -262,6 +293,22 @@ private fun StudioPage(state: DeskState, vm: MoonViewModel) {
         ) {
             Text("PNG, JPG, or GIF background")
         }
+    }
+}
+
+@Composable
+private fun TrendLine(values: List<Double>, up: Boolean) {
+    if (values.size < 2) return
+    Canvas(Modifier.fillMaxWidth().height(48.dp)) {
+        val min = values.min()
+        val max = values.max().let { if (it == min) it + 1 else it }
+        val path = Path()
+        values.forEachIndexed { index, value ->
+            val x = index / (values.size - 1f) * size.width
+            val y = size.height - ((value - min) / (max - min)).toFloat() * size.height
+            if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        }
+        drawPath(path, color = if (up) Up else Down, style = Stroke(width = 4f, cap = StrokeCap.Round))
     }
 }
 
@@ -314,17 +361,7 @@ private fun BagsPage(state: DeskState, vm: MoonViewModel) {
 @Composable
 private fun SettingsPage(state: DeskState, vm: MoonViewModel) {
     val settings = state.settings
-    Box(Modifier.fillMaxWidth()) {
-        if (!settings.settingsPath.isNullOrBlank()) {
-            val imageMod = if (Build.VERSION.SDK_INT >= 31) Modifier.blur((settings.settingsDim * 18).dp) else Modifier
-            AsyncImage(
-                model = File(settings.settingsPath),
-                contentDescription = null,
-                modifier = imageMod.matchParentSize(),
-                contentScale = ContentScale.Crop,
-            )
-        }
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.background(MaterialTheme.colorScheme.background.copy(alpha = 0.82f)).padding(8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Fiat")
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf("usd", "eur", "gbp", "jpy").forEach { code ->
@@ -346,6 +383,16 @@ private fun SettingsPage(state: DeskState, vm: MoonViewModel) {
                 Text("Material You")
                 Switch(checked = settings.materialYou, onCheckedChange = { checked -> vm.patch { it.copy(materialYou = checked) } })
             }
+            Text("Widget tap opens")
+            OutlinedTextField(
+                value = settings.tapPackage,
+                onValueChange = { value -> vm.patch { it.copy(tapPackage = value.trim()) } },
+                label = { Text("App package name") },
+                placeholder = { Text("com.example.app") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+            )
+            Text("The home-screen widget opens this app when tapped.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("Glass ${(settings.glass * 100).toInt()}%")
             Slider(settings.glass, { value -> vm.patch { it.copy(glass = value) } }, valueRange = 0f..0.8f)
             Text("Corners ${settings.radiusDp} dp")
@@ -370,7 +417,6 @@ private fun SettingsPage(state: DeskState, vm: MoonViewModel) {
             Button(onClick = { vm.saveBinance(bnKey, bnSecret); bnSecret = "" }, modifier = Modifier.fillMaxWidth()) { Text("Save Binance key") }
             OutlinedButton(onClick = { vm.syncExchanges() }, modifier = Modifier.fillMaxWidth()) { Text("Sync exchange balances") }
             TextButton(onClick = { vm.clearSecrets() }) { Text("Clear keys") }
-        }
     }
 }
 

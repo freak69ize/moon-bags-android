@@ -1,6 +1,7 @@
 package com.moonbags.app.widget
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -14,7 +15,9 @@ import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.Image
 import androidx.glance.ImageProvider
+import androidx.glance.LocalContext
 import androidx.glance.LocalSize
+import androidx.glance.action.Action
 import androidx.glance.action.ActionParameters
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
@@ -23,6 +26,7 @@ import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.action.actionRunCallback
+import androidx.glance.appwidget.action.actionStartActivity
 import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.lazy.LazyColumn
 import androidx.glance.appwidget.lazy.items
@@ -36,6 +40,7 @@ import androidx.glance.layout.ContentScale
 import androidx.glance.layout.Row
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
+import androidx.glance.layout.height
 import androidx.glance.layout.padding
 import androidx.glance.layout.size
 import androidx.glance.text.FontWeight
@@ -87,13 +92,15 @@ data class WidgetSnap(
     val background: Bitmap?,
     val scrim: Float,
     val hidden: Boolean,
+    val alpha: Float = 0.7f,
+    val tapPackage: String = "",
 )
 
 private val Paper = Color(0xFFEFE8DC)
 private val Brass = Color(0xFFD4A24A)
 private val Ink = Color(0xFF0C1016)
-private val UpColor = Color(0xFF7DCEA0)
-private val DownColor = Color(0xFFE07A68)
+private val UpColor = Color(0xFF3DDC84)
+private val DownColor = Color(0xFFFF4D4D)
 
 object WidgetSnapshots {
     suspend fun load(context: Context, glanceId: GlanceId, kind: String): WidgetSnap {
@@ -112,12 +119,14 @@ object WidgetSnapshots {
             backgroundPath = null,
             scrim = settings.scrim,
             hidden = false,
+            alpha = 0.7f,
         )
         val global = graph.db.market().global(settings.currency)
         val quotes = graph.db.market().quotes().filter { it.currency == settings.currency }
         val holdings = graph.db.holdings().all()
-        val background = graph.media.decodeForWidget(config.backgroundPath)
+        val background = fadeBitmap(graph.media.decodeForWidget(config.backgroundPath), config.alpha)
         return render(config, settings.currency, settings.hideBalances, global, quotes, holdings, background)
+            .copy(alpha = config.alpha, tapPackage = settings.tapPackage)
     }
 }
 
@@ -186,14 +195,15 @@ fun render(
         }
         else -> WidgetSnap(
             primary = CompactMoney.format(global?.marketCap ?: 0.0, currency),
-            secondary = CompactMoney.percent(global?.change24h ?: 0.0) + " 24h",
+            secondary = CompactMoney.percent(global?.change24h ?: 0.0),
             up = (global?.change24h ?: 0.0) >= 0,
             title = "Total market cap",
             lines = emptyList(),
-            spark = emptyList(),
+            spark = parseSpark(quotes.find { it.coinId == "bitcoin" }?.sparkline ?: coin?.sparkline),
             background = background,
             scrim = config.scrim,
             hidden = hidden,
+            alpha = config.alpha,
         )
     }
 }
@@ -206,6 +216,15 @@ private fun parseSpark(raw: String?): List<Double> {
     return all.filterIndexed { index, _ -> index % step == 0 }
 }
 
+fun fadeBitmap(source: Bitmap?, alpha: Float): Bitmap? {
+    if (source == null) return null
+    val faded = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(faded)
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.alpha = (alpha.coerceIn(0.15f, 1f) * 255).toInt() }
+    canvas.drawBitmap(source, 0f, 0f, paint)
+    return faded
+}
+
 fun sparkBitmap(values: List<Double>, up: Boolean): Bitmap {
     val width = 420
     val height = 140
@@ -214,7 +233,7 @@ fun sparkBitmap(values: List<Double>, up: Boolean): Bitmap {
     val min = values.min()
     val max = values.max().let { if (it == min) it + 1 else it }
     val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = if (up) 0xFF7DCEA0.toInt() else 0xFFE07A68.toInt()
+        color = if (up) 0xFF3DDC84.toInt() else 0xFFFF4D4D.toInt()
         style = Paint.Style.STROKE
         strokeWidth = 4f
         strokeJoin = Paint.Join.ROUND
@@ -232,7 +251,17 @@ fun sparkBitmap(values: List<Double>, up: Boolean): Bitmap {
 
 @Composable
 private fun Chrome(snap: WidgetSnap, eye: Boolean = false, body: @Composable () -> Unit) {
-    Box(modifier = GlanceModifier.fillMaxSize().cornerRadius(22.dp).background(ColorProvider(Ink))) {
+    val context = LocalContext.current
+    val open = if (snap.tapPackage.isBlank()) {
+        null
+    } else {
+        context.packageManager.getLaunchIntentForPackage(snap.tapPackage.trim())?.let { intent ->
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            actionStartActivity(intent)
+        }
+    }
+    val veil = Ink.copy(alpha = snap.alpha.coerceIn(0.15f, 1f))
+    Box(modifier = GlanceModifier.fillMaxSize().cornerRadius(22.dp).background(ColorProvider(veil))) {
         if (snap.background != null) {
             Image(
                 provider = ImageProvider(snap.background),
@@ -241,7 +270,7 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, body: @Composable () 
                 contentScale = ContentScale.Crop,
             )
             Box(
-                modifier = GlanceModifier.fillMaxSize().background(ColorProvider(Color.Black.copy(alpha = snap.scrim.coerceIn(0f, 0.9f)))),
+                modifier = GlanceModifier.fillMaxSize().background(ColorProvider(Color.Black.copy(alpha = snap.scrim.coerceIn(0f, 0.9f) * snap.alpha))),
             ) {}
         }
         Column(modifier = GlanceModifier.fillMaxSize().padding(10.dp)) {
@@ -263,8 +292,17 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, body: @Composable () 
                     modifier = GlanceModifier.size(18.dp).clickable(refreshClick()),
                 )
             }
-            body()
+            OpenBody(open, body)
         }
+    }
+}
+
+@Composable
+private fun OpenBody(open: Action?, body: @Composable () -> Unit) {
+    if (open == null) {
+        body()
+    } else {
+        Box(modifier = GlanceModifier.fillMaxSize().clickable(open)) { body() }
     }
 }
 
@@ -278,6 +316,7 @@ class TotalMarketCapWidget : GlanceAppWidget() {
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val snap = WidgetSnapshots.load(context, id, WidgetKinds.MCAP)
+        val chart = sparkBitmap(snap.spark, snap.up)
         provideContent {
             val height = LocalSize.current.height
             Chrome(snap) {
@@ -293,8 +332,16 @@ class TotalMarketCapWidget : GlanceAppWidget() {
                         fontWeight = FontWeight.Bold,
                     ),
                 )
-                if (height >= 72.dp) {
-                    Text(snap.secondary, style = TextStyle(color = ColorProvider(if (snap.up) UpColor else DownColor), fontSize = 13.sp))
+                Text(
+                    snap.secondary + " 24h",
+                    style = TextStyle(color = ColorProvider(if (snap.up) UpColor else DownColor), fontSize = 13.sp),
+                )
+                if (height >= 90.dp && snap.spark.size > 1) {
+                    Image(
+                        provider = ImageProvider(chart),
+                        contentDescription = "Market trend",
+                        modifier = GlanceModifier.fillMaxWidth().height(48.dp),
+                    )
                 }
             }
         }
@@ -333,7 +380,7 @@ class SparklineWidget : GlanceAppWidget() {
             Chrome(snap) {
                 Text(snap.primary, style = TextStyle(color = ColorProvider(Paper), fontSize = 22.sp, fontWeight = FontWeight.Bold))
                 Text(snap.secondary, style = TextStyle(color = ColorProvider(if (snap.up) UpColor else DownColor), fontSize = 12.sp))
-                Image(provider = ImageProvider(chart), contentDescription = "7 day trend", modifier = GlanceModifier.fillMaxWidth())
+                Image(provider = ImageProvider(chart), contentDescription = "7 day trend", modifier = GlanceModifier.fillMaxWidth().height(64.dp))
             }
         }
     }
