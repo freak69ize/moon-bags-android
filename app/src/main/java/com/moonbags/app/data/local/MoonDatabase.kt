@@ -55,6 +55,10 @@ data class WidgetConfigEntity(
     val scrim: Float,
     val hidden: Boolean,
     val alpha: Float = 0.7f,
+    val acrylic: Boolean = false,
+    val acrylicHue: Float = 220f,
+    val acrylicSat: Float = 0.55f,
+    val acrylicLight: Float = 0.18f,
 )
 
 @Dao
@@ -116,7 +120,7 @@ interface WidgetDao {
 
 @Database(
     entities = [GlobalEntity::class, QuoteEntity::class, HoldingEntity::class, WidgetConfigEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 abstract class MoonDatabase : RoomDatabase() {

@@ -29,6 +29,8 @@ data class UserSettings(
     val watchIds: String = "bitcoin,ethereum,solana,dogecoin",
     val tapPackage: String = "",
     val tapLabel: String = "",
+    val sliderColor: String = "#E6E6E6",
+    val subtextColor: String = "#8E8E93",
 )
 
 class SettingsStore(private val context: Context) {
@@ -50,6 +52,8 @@ class SettingsStore(private val context: Context) {
             watchIds = prefs[Keys.watch] ?: "bitcoin,ethereum,solana,dogecoin",
             tapPackage = prefs[Keys.tapPackage] ?: "",
             tapLabel = prefs[Keys.tapLabel] ?: "",
+            sliderColor = prefs[Keys.sliderColor] ?: "#E6E6E6",
+            subtextColor = prefs[Keys.subtextColor] ?: "#8E8E93",
         )
     }
 
@@ -73,6 +77,8 @@ class SettingsStore(private val context: Context) {
                     watchIds = prefs[Keys.watch] ?: "bitcoin,ethereum,solana,dogecoin",
                     tapPackage = prefs[Keys.tapPackage] ?: "",
                     tapLabel = prefs[Keys.tapLabel] ?: "",
+                    sliderColor = prefs[Keys.sliderColor] ?: "#E6E6E6",
+                    subtextColor = prefs[Keys.subtextColor] ?: "#8E8E93",
                 ),
             )
             prefs[Keys.currency] = next.currency
@@ -91,6 +97,8 @@ class SettingsStore(private val context: Context) {
             prefs[Keys.watch] = next.watchIds
             prefs[Keys.tapPackage] = next.tapPackage
             prefs[Keys.tapLabel] = next.tapLabel
+            prefs[Keys.sliderColor] = next.sliderColor
+            prefs[Keys.subtextColor] = next.subtextColor
         }
     }
 
@@ -111,5 +119,7 @@ class SettingsStore(private val context: Context) {
         val watch = stringPreferencesKey("watch")
         val tapPackage = stringPreferencesKey("tap_package")
         val tapLabel = stringPreferencesKey("tap_label")
+        val sliderColor = stringPreferencesKey("slider_color")
+        val subtextColor = stringPreferencesKey("subtext_color")
     }
 }

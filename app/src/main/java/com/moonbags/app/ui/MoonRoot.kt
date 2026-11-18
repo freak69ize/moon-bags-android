@@ -23,21 +23,21 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AccountBalanceWallet
-import androidx.compose.material.icons.outlined.GridView
-import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.ShowChart
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -52,16 +52,24 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Offset
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import com.moonbags.app.data.local.QuoteEntity
 import com.moonbags.app.data.remote.SearchCoinDto
 import com.moonbags.app.domain.CompactMoney
@@ -75,7 +83,11 @@ import com.moonbags.app.widget.render
 import kotlinx.coroutines.launch
 import java.io.File
 
-private enum class Tab(val label: String) { Market("Market"), Studio("Studio"), Bags("Bags"), Settings("Settings") }
+private enum class Page { Tape, Widgets, Settings }
+
+private val Night = Color(0xFF0E0E10)
+private val Card = Color(0xFF1C1C1E)
+private val Pill = Color(0xFF2C2C2E)
 
 @Composable
 fun MoonRoot(vm: MoonViewModel) {
@@ -83,91 +95,48 @@ fun MoonRoot(vm: MoonViewModel) {
     var splash by remember { mutableStateOf(true) }
     MoonTheme(state.settings.theme, state.settings.materialYou) {
         if (splash) {
-            LaunchSplash(state.settings.splashPath) {
-                splash = false
-            }
+            LaunchSplash(state.settings.splashPath) { splash = false }
             LaunchedEffect(Unit) {
                 kotlinx.coroutines.delay(vm.splashMillis())
                 splash = false
             }
             return@MoonTheme
         }
-        var tab by remember { mutableStateOf(Tab.Market) }
-        Scaffold(
-            containerColor = if (tab == Tab.Settings) Color.Transparent else MaterialTheme.colorScheme.background,
-            topBar = {
-                if (tab != Tab.Settings) {
+        var page by remember { mutableStateOf(Page.Tape) }
+        var menu by remember { mutableStateOf("home") }
+        Box(Modifier.fillMaxSize().background(Night)) {
+            if (page == Page.Settings && !state.settings.settingsPath.isNullOrBlank()) {
+                AsyncImage(model = File(state.settings.settingsPath), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = state.settings.settingsDim.coerceIn(0.05f, 0.85f))))
+            }
+            when (page) {
+                Page.Tape -> TapePage(state, vm)
+                Page.Widgets -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = { page = Page.Tape }) { Text("Close", color = Color.White) }
+                        Text("Widgets", color = Color.White, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.width(48.dp))
+                    }
+                    StudioPage(state, vm)
+                }
+                Page.Settings -> SettingsPage(state, vm, menu, { menu = it }) { page = Page.Tape; menu = "home" }
+            }
+            if (page == Page.Tape) {
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    Modifier.align(Alignment.TopEnd).padding(12.dp).clip(CircleShape).background(Pill).padding(horizontal = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Column {
-                        Text("Moon Bags", style = MaterialTheme.typography.headlineMedium, fontFamily = FontFamily.Serif)
-                        Text(state.settings.currency.uppercase() + " desk", color = Brass, style = MaterialTheme.typography.labelMedium)
+                    Box(
+                        Modifier.size(40.dp).clickable { page = Page.Widgets },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Box(Modifier.size(18.dp).clip(CircleShape).background(Color.Transparent).then(Modifier)) {
+                            Canvas(Modifier.size(18.dp)) {
+                                drawCircle(Color.White, style = Stroke(width = 2.dp.toPx()))
+                            }
+                        }
                     }
-                    Icon(
-                        Icons.Outlined.Refresh,
-                        contentDescription = "Refresh",
-                        tint = Brass,
-                        modifier = Modifier.clickable { vm.refresh() }.padding(8.dp),
-                    )
-                }
-                }
-            },
-            bottomBar = {
-                if (tab != Tab.Settings) {
-                NavigationBar {
-                    Tab.entries.forEach { item ->
-                        NavigationBarItem(
-                            selected = tab == item,
-                            onClick = { tab = item },
-                            icon = {
-                                Icon(
-                                    when (item) {
-                                        Tab.Market -> Icons.Outlined.ShowChart
-                                        Tab.Studio -> Icons.Outlined.GridView
-                                        Tab.Bags -> Icons.Outlined.AccountBalanceWallet
-                                        Tab.Settings -> Icons.Outlined.Settings
-                                    },
-                                    contentDescription = item.label,
-                                )
-                            },
-                            label = { Text(item.label) },
-                        )
-                    }
-                }
-                }
-            },
-        ) { padding ->
-            Box(Modifier.padding(padding).fillMaxSize()) {
-                if (tab == Tab.Settings && !state.settings.settingsPath.isNullOrBlank()) {
-                    AsyncImage(
-                        model = File(state.settings.settingsPath),
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
-                    )
-                    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = state.settings.settingsDim.coerceIn(0.05f, 0.85f))))
-                }
-                Column(
-                    Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 20.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                    state.notice?.let { Text(it, color = Brass) }
-                    if (tab == Tab.Settings) {
-                        TextButton(onClick = { tab = Tab.Market }) { Text("Close") }
-                    }
-                    when (tab) {
-                        Tab.Market -> MarketPage(state, vm)
-                        Tab.Studio -> StudioPage(state, vm)
-                        Tab.Bags -> BagsPage(state, vm)
-                        Tab.Settings -> SettingsPage(state, vm)
-                    }
+                    Icon(Icons.Outlined.MoreVert, contentDescription = "Settings", tint = Color.White, modifier = Modifier.size(40.dp).clickable { page = Page.Settings })
                 }
             }
         }
@@ -189,44 +158,135 @@ private fun LaunchSplash(path: String?, onSkip: () -> Unit) {
 }
 
 @Composable
-private fun MarketPage(state: DeskState, vm: MoonViewModel) {
+private fun TapePage(state: DeskState, vm: MoonViewModel) {
     val currency = state.settings.currency
-    Text(CompactMoney.format(state.global?.marketCap ?: 0.0, currency), style = MaterialTheme.typography.displaySmall, fontFamily = FontFamily.Serif)
-    Text(
-        CompactMoney.percent(state.global?.change24h ?: 0.0) + " 24h · vol " + CompactMoney.format(state.global?.volume ?: 0.0, currency),
-        color = if ((state.global?.change24h ?: 0.0) >= 0) Up else Down,
-    )
+    val sub = parseHex(state.settings.subtextColor)
     var query by remember { mutableStateOf("") }
     var hits by remember { mutableStateOf<List<SearchCoinDto>>(emptyList()) }
     val scope = rememberCoroutineScope()
-    OutlinedTextField(
-        value = query,
-        onValueChange = {
-            query = it
-            scope.launch { hits = if (it.length < 2) emptyList() else runCatching { vm.search(it) }.getOrDefault(emptyList()) }
-        },
-        modifier = Modifier.fillMaxWidth(),
-        label = { Text("Add a coin") },
-        singleLine = true,
-    )
-    hits.forEach { hit ->
-        Text(
-            "${hit.symbol.uppercase()}  ${hit.name}",
-            modifier = Modifier.fillMaxWidth().clickable {
-                val ids = state.settings.watchIds.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toMutableList()
-                if (hit.id !in ids) ids += hit.id
-                vm.patch { settings -> settings.copy(watchIds = ids.joinToString(",")) }
-                vm.refresh()
-                query = ""
-                hits = emptyList()
-            }.padding(vertical = 8.dp),
-        )
+    val context = LocalContext.current
+    val watch = state.settings.watchIds.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 64.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            state.error?.let { Text(it, color = Down) }
+            state.quotes.filter { it.coinId in watch }.forEach { quote ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(Color.White), contentAlignment = Alignment.Center) {
+                        if (!quote.imageUrl.isNullOrBlank()) {
+                            AsyncImage(model = quote.imageUrl, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                        } else {
+                            Text(quote.symbol.take(1), color = Color.Black, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(quote.name, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, modifier = Modifier.weight(1f))
+                            Text(spotLabel(quote.price, currency), color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
+                        }
+                        Text(
+                            spotLabel(quote.price, currency) + (if (quote.change24h >= 0) "  ▲  " else "  ▼  ") + quote.symbol + "  " + CompactMoney.format(quote.marketCap, currency),
+                            color = if (quote.change24h >= 0) Color(0xFF3DDC84) else sub,
+                            fontSize = 13.sp,
+                        )
+                    }
+                    Text(
+                        "Remove",
+                        color = sub,
+                        fontSize = 11.sp,
+                        modifier = Modifier.clickable {
+                            vm.patch { it.copy(watchIds = watch.filterNot { id -> id == quote.coinId }.joinToString(",")) }
+                        }.padding(start = 8.dp),
+                    )
+                }
+            }
+        }
+        if (hits.isNotEmpty()) {
+            Column(
+                Modifier.align(Alignment.BottomCenter).padding(start = 16.dp, end = 16.dp, bottom = 84.dp).clip(RoundedCornerShape(16.dp)).background(Card).padding(vertical = 4.dp),
+            ) {
+                hits.take(6).forEach { hit ->
+                    Text(
+                        "${hit.name}   ${hit.symbol.uppercase()}",
+                        color = Color.White,
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            val ids = watch.toMutableList()
+                            if (hit.id !in ids) ids += hit.id
+                            vm.patch { settings -> settings.copy(watchIds = ids.joinToString(",")) }
+                            vm.refresh()
+                            query = ""
+                            hits = emptyList()
+                        }.padding(horizontal = 16.dp, vertical = 10.dp),
+                    )
+                }
+            }
+        }
+        Row(Modifier.align(Alignment.BottomCenter).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = {
+                    query = it
+                    scope.launch { hits = if (it.trim().length < 2) emptyList() else runCatching { vm.searchMemes(it, "all") }.getOrDefault(emptyList()) }
+                },
+                modifier = Modifier.weight(1f),
+                placeholder = { Text("Crypto, news and more") },
+                singleLine = true,
+                shape = CircleShape,
+                colors = androidx.compose.material3.TextFieldDefaults.colors(
+                    focusedContainerColor = Pill,
+                    unfocusedContainerColor = Pill,
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                    cursorColor = Color.White,
+                ),
+            )
+            Spacer(Modifier.width(8.dp))
+            Box(
+                Modifier.size(48.dp).clip(CircleShape).background(Pill).clickable {
+                    val options = GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
+                    GmsBarcodeScanning.getClient(context, options).startScan()
+                        .addOnSuccessListener { barcode ->
+                            query = barcode.rawValue.orEmpty()
+                            scope.launch { hits = if (query.length < 2) emptyList() else runCatching { vm.searchMemes(query, "all") }.getOrDefault(emptyList()) }
+                        }
+                },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Outlined.QrCodeScanner, contentDescription = "Scan QR", tint = Color.White)
+            }
+        }
     }
-    val watch = state.settings.watchIds.split(",").map { it.trim() }.toSet()
-    state.quotes.filter { it.coinId in watch }.forEach { quote ->
-        QuoteRow(quote, currency) {
-            val ids = watch.filterNot { it == quote.coinId }
-            vm.patch { it.copy(watchIds = ids.joinToString(",")) }
+}
+
+private fun spotLabel(price: Double, currency: String) = if (price > 0 && price < 0.01) "<$0.01" else CompactMoney.format(price, currency)
+
+private fun parseHex(hex: String): Color = runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrDefault(Color(0xFF8E8E93))
+
+@Composable
+private fun ThinSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, color: Color, sub: Color, onChange: (Float) -> Unit) {
+    Column {
+        Text(label, color = Color.White, fontSize = 14.sp)
+        Text(value.toInt().toString(), color = sub, fontSize = 12.sp)
+        Box(
+            Modifier.fillMaxWidth().height(28.dp).pointerInput(range) {
+                fun apply(x: Float) {
+                    val p = (x / size.width).coerceIn(0f, 1f)
+                    onChange(range.start + p * (range.endInclusive - range.start))
+                }
+                detectTapGestures { apply(it.x) }
+                detectHorizontalDragGestures { change, _ -> apply(change.position.x) }
+            },
+        ) {
+            Canvas(Modifier.fillMaxSize()) {
+                val y = size.height / 2f
+                val p = ((value - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
+                val x = p * size.width
+                drawLine(Color.White.copy(alpha = 0.22f), Offset(0f, y), Offset(size.width, y), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+                drawLine(color, Offset(0f, y), Offset(x, y), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+                drawCircle(color, radius = 8.dp.toPx(), center = Offset(x, y), style = Stroke(width = 2.dp.toPx()))
+            }
         }
     }
 }
@@ -297,16 +357,31 @@ private fun StudioPage(state: DeskState, vm: MoonViewModel) {
                 Switch(checked = config.showPrice, onCheckedChange = { vm.updateWidgetConfig(config.copy(showPrice = it)) })
             }
         }
-        Text("Scrim ${(config.scrim * 100).toInt()}%")
-        Slider(value = config.scrim, onValueChange = { vm.updateWidgetConfig(config.copy(scrim = it)) }, valueRange = 0f..0.9f)
+        Text("PNG only. GIFs are not used on widgets.", color = Color(0xFF8E8E93), fontSize = 12.sp)
         OutlinedButton(
             onClick = {
                 pendingId = config.appWidgetId
-                picker.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly))
+                picker.launch(PickVisualMediaRequest(PickVisualMedia.SingleMimeType("image/png")))
             },
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text("PNG, JPG, or GIF background")
+            Text("Add custom background")
+        }
+        Button(
+            onClick = { vm.updateWidgetConfig(config.copy(acrylic = !config.acrylic, backgroundPath = if (config.acrylic) config.backgroundPath else null)) },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text(if (config.acrylic) "Acrylic background on" else "Acrylic background") }
+        if (config.acrylic) {
+            val slider = parseHex(state.settings.sliderColor)
+            val sub = parseHex(state.settings.subtextColor)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("Black" to Triple(0f, 0f, 0.08f), "Red" to Triple(4f, 0.72f, 0.32f), "Blue" to Triple(214f, 0.7f, 0.32f), "Green" to Triple(142f, 0.55f, 0.28f)).forEach { (name, tone) ->
+                    FilterChip(selected = false, onClick = { vm.updateWidgetConfig(config.copy(acrylicHue = tone.first, acrylicSat = tone.second, acrylicLight = tone.third)) }, label = { Text(name) })
+                }
+            }
+            ThinSlider("Hue", config.acrylicHue, 0f..360f, slider, sub) { vm.updateWidgetConfig(config.copy(acrylicHue = it, acrylicSat = if (config.acrylicSat == 0f) 0.6f else config.acrylicSat)) }
+            ThinSlider("Lighter or darker", config.acrylicLight, 0.04f..0.8f, slider, sub) { vm.updateWidgetConfig(config.copy(acrylicLight = it)) }
+            Box(Modifier.fillMaxWidth().height(72.dp).clip(RoundedCornerShape(18.dp)).background(Color.hsl(config.acrylicHue, config.acrylicSat.coerceIn(0f, 1f), config.acrylicLight.coerceIn(0f, 1f))))
         }
     }
 }
@@ -436,55 +511,80 @@ private fun BagsPage(state: DeskState, vm: MoonViewModel) {
 }
 
 @Composable
-private fun SettingsPage(state: DeskState, vm: MoonViewModel) {
+private fun SettingsPage(state: DeskState, vm: MoonViewModel, menu: String, onMenu: (String) -> Unit, onClose: () -> Unit) {
     val settings = state.settings
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Fiat")
+    val sub = parseHex(settings.subtextColor)
+    val slider = parseHex(settings.sliderColor)
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = { if (menu == "home") onClose() else onMenu("home") }) { Text(if (menu == "home") "Close" else "Back", color = Color.White) }
+            Text(if (menu == "theme") "Theme Settings" else "Settings", color = Color.White, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.width(48.dp))
+        }
+        if (menu == "home") {
+            listOf(
+                "general" to "General",
+                "theme" to "Theme Settings",
+                "splash" to "Splash",
+                "tap" to "Widget tap",
+                "keys" to "Exchange keys",
+            ).forEach { (id, title) ->
+                Text(title, color = Color.White, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Card).clickable { onMenu(id) }.padding(16.dp))
+            }
+        }
+        if (menu == "general") {
+            Text("Fiat", color = Color.White)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf("usd", "eur", "gbp", "jpy").forEach { code ->
                     FilterChip(selected = settings.currency == code, onClick = { vm.patch { it.copy(currency = code) } }, label = { Text(code.uppercase()) })
                 }
             }
-            Text("Sync")
+            Text("Sync", color = Color.White)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf(15, 30, 60).forEach { minutes ->
                     FilterChip(selected = settings.intervalMin == minutes, onClick = { vm.patch { it.copy(intervalMin = minutes) } }, label = { Text(if (minutes == 60) "1 hr" else "$minutes m") })
                 }
             }
+            TextButton(onClick = { vm.patch { it.copy(hideBalances = !settings.hideBalances) } }) { Text(if (settings.hideBalances) "Balances hidden" else "Balances visible", color = Color.White) }
+        }
+        if (menu == "theme") {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf("ink", "paper", "oled").forEach { theme ->
+                listOf("ink", "oled", "paper").forEach { theme ->
                     FilterChip(selected = settings.theme == theme, onClick = { vm.patch { it.copy(theme = theme) } }, label = { Text(theme) })
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                Text("Material You")
+                Text("Material You", color = Color.White)
                 Switch(checked = settings.materialYou, onCheckedChange = { checked -> vm.patch { it.copy(materialYou = checked) } })
             }
-            Text("Widget tap opens")
+            Text("Slider and subtext colors are hex values you can edit.", color = sub, fontSize = 12.sp)
+            OutlinedTextField(settings.sliderColor, { value -> vm.patch { it.copy(sliderColor = value) } }, label = { Text("Slider color") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(settings.subtextColor, { value -> vm.patch { it.copy(subtextColor = value) } }, label = { Text("Subtext color") }, modifier = Modifier.fillMaxWidth())
+            ThinSlider("Glass", settings.glass, 0f..0.8f, slider, sub) { value -> vm.patch { it.copy(glass = value) } }
+            ThinSlider("Corners", settings.radiusDp.toFloat(), 8f..32f, slider, sub) { value -> vm.patch { it.copy(radiusDp = value.toInt()) } }
+            ThinSlider("Type", settings.fontScale, 0.9f..1.2f, slider, sub) { value -> vm.patch { it.copy(fontScale = value) } }
+            ThinSlider("Scrim", settings.scrim, 0f..0.9f, slider, sub) { value -> vm.patch { it.copy(scrim = value) } }
+            ThinSlider("Settings dim", settings.settingsDim, 0.05f..0.9f, slider, sub) { value -> vm.patch { it.copy(settingsDim = value) } }
+            MediaPick("Settings background") { uri -> vm.importMedia(uri, "settings") { current, path -> current.copy(settingsPath = path) } }
+        }
+        if (menu == "splash") {
+            ThinSlider("Splash seconds", settings.splashSeconds.toFloat(), 1f..5f, slider, sub) { value -> vm.patch { it.copy(splashSeconds = value.toInt().coerceIn(1, 5)) } }
+            MediaPick("Splash image or GIF") { uri -> vm.importMedia(uri, "splash") { current, path -> current.copy(splashPath = path) } }
+            TextButton(onClick = { vm.patch { it.copy(splashPath = null) } }) { Text("Reset splash", color = sub) }
+        }
+        if (menu == "tap") {
             var picking by remember { mutableStateOf(false) }
             Button(onClick = { picking = true }, modifier = Modifier.fillMaxWidth()) {
                 Text(if (settings.tapLabel.isBlank()) "Choose app" else "Opens ${settings.tapLabel}")
             }
             if (picking) {
-                AppPicker(
-                    onClose = { picking = false },
-                    onPick = { pkg, label ->
-                        vm.patch { it.copy(tapPackage = pkg, tapLabel = label) }
-                        picking = false
-                    },
-                )
+                AppPicker(onClose = { picking = false }, onPick = { pkg, label ->
+                    vm.patch { it.copy(tapPackage = pkg, tapLabel = label) }
+                    picking = false
+                })
             }
-            Text("Glass ${(settings.glass * 100).toInt()}%")
-            Slider(settings.glass, { value -> vm.patch { it.copy(glass = value) } }, valueRange = 0f..0.8f)
-            Text("Corners ${settings.radiusDp} dp")
-            Slider(settings.radiusDp.toFloat(), { value -> vm.patch { it.copy(radiusDp = value.toInt()) } }, valueRange = 8f..32f)
-            Text("Type ${"%.2f".format(settings.fontScale)}")
-            Slider(settings.fontScale, { value -> vm.patch { it.copy(fontScale = value) } }, valueRange = 0.9f..1.2f)
-            Text("Splash ${settings.splashSeconds}s")
-            Slider(settings.splashSeconds.toFloat(), { value -> vm.patch { it.copy(splashSeconds = value.toInt().coerceIn(1, 5)) } }, valueRange = 1f..5f)
-            MediaPick("Splash image or GIF") { uri -> vm.importMedia(uri, "splash") { settings, path -> settings.copy(splashPath = path) } }
-            MediaPick("Settings background") { uri -> vm.importMedia(uri, "settings") { settings, path -> settings.copy(settingsPath = path) } }
-            TextButton(onClick = { vm.patch { it.copy(splashPath = null, settingsPath = null) } }) { Text("Reset media") }
+        }
+        if (menu == "keys") {
             Text("Exchange keys stay in the Android Keystore. Disable trading and withdrawals.", color = Down)
             var cbName by remember { mutableStateOf("") }
             var cbPem by remember { mutableStateOf("") }
@@ -498,6 +598,7 @@ private fun SettingsPage(state: DeskState, vm: MoonViewModel) {
             Button(onClick = { vm.saveBinance(bnKey, bnSecret); bnSecret = "" }, modifier = Modifier.fillMaxWidth()) { Text("Save Binance key") }
             OutlinedButton(onClick = { vm.syncExchanges() }, modifier = Modifier.fillMaxWidth()) { Text("Sync exchange balances") }
             TextButton(onClick = { vm.clearSecrets() }) { Text("Clear keys") }
+        }
     }
 }
 

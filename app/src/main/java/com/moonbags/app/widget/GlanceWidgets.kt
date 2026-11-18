@@ -94,6 +94,10 @@ data class WidgetSnap(
     val hidden: Boolean,
     val alpha: Float = 0.7f,
     val tapPackage: String = "",
+    val acrylic: Boolean = false,
+    val acrylicHue: Float = 220f,
+    val acrylicSat: Float = 0.55f,
+    val acrylicLight: Float = 0.18f,
 )
 
 private val Paper = Color(0xFFEFE8DC)
@@ -126,7 +130,14 @@ object WidgetSnapshots {
         val holdings = graph.db.holdings().all()
         val background = graph.media.decodeForWidget(config.backgroundPath, 360)
         return render(config, settings.currency, settings.hideBalances, global, quotes, holdings, background)
-            .copy(alpha = config.alpha, tapPackage = settings.tapPackage)
+            .copy(
+                alpha = config.alpha,
+                tapPackage = settings.tapPackage,
+                acrylic = config.acrylic,
+                acrylicHue = config.acrylicHue,
+                acrylicSat = config.acrylicSat,
+                acrylicLight = config.acrylicLight,
+            )
     }
 }
 
@@ -285,6 +296,12 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, body: @Composable Col
                     modifier = GlanceModifier.fillMaxSize().background(ColorProvider(Color.Black.copy(alpha = snap.scrim.coerceIn(0f, 0.9f)))),
                 ) {}
             }
+        } else if (snap.acrylic) {
+            Box(
+                modifier = GlanceModifier.fillMaxSize().background(
+                    ColorProvider(Color.hsl(snap.acrylicHue, snap.acrylicSat.coerceIn(0f, 1f), snap.acrylicLight.coerceIn(0f, 1f)).copy(alpha = 0.78f)),
+                ),
+            ) {}
         } else {
             Box(modifier = GlanceModifier.fillMaxSize().background(ColorProvider(veil))) {}
         }
