@@ -45,6 +45,8 @@ data class SearchCoinDto(
     val id: String = "",
     val symbol: String = "",
     val name: String = "",
+    val chain: String = "",
+    val marketCap: Double = 0.0,
 )
 
 @Serializable
@@ -99,10 +101,10 @@ object HttpClients {
         .readTimeout(20, TimeUnit.SECONDS)
         .addInterceptor { chain ->
             chain.proceed(
-                chain.request().newBuilder()
-                    .header("User-Agent", "MoonBags/1.0 (Android)")
-                    .header("Accept", "application/json")
-                    .build(),
+                chain.request().newBuilder().apply {
+                    if (chain.request().header("User-Agent") == null) header("User-Agent", "MoonBags/1.0 (Android)")
+                    if (chain.request().header("Accept") == null) header("Accept", "application/json")
+                }.build(),
             )
         }
         .build()

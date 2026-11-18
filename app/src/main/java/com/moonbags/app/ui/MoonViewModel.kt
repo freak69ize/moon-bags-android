@@ -122,6 +122,14 @@ class MoonViewModel(app: Application) : AndroidViewModel(app) {
 
     suspend fun search(query: String): List<SearchCoinDto> = graph.market.search(query)
 
+    suspend fun searchMemes(query: String, chain: String): List<SearchCoinDto> = graph.market.searchMemes(query, chain)
+
+    fun pinMeme(config: WidgetConfigEntity, hit: SearchCoinDto) = launchIo("Added ${hit.symbol}") {
+        val currency = graph.settings.flow.first().currency
+        graph.market.pinMeme(hit, currency)
+        updateWidgetConfig(config.copy(coinId = hit.id))
+    }
+
     suspend fun splashMillis(): Long {
         val seconds = graph.settings.flow.first().splashSeconds
         return seconds.coerceIn(1, 5) * 1000L

@@ -1,5 +1,7 @@
 package com.moonbags.app.ui
 
+import android.content.Intent
+import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
@@ -14,6 +16,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -23,6 +27,7 @@ import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.ShowChart
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -51,6 +56,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -87,8 +93,9 @@ fun MoonRoot(vm: MoonViewModel) {
         }
         var tab by remember { mutableStateOf(Tab.Market) }
         Scaffold(
-            containerColor = MaterialTheme.colorScheme.background,
+            containerColor = if (tab == Tab.Settings) Color.Transparent else MaterialTheme.colorScheme.background,
             topBar = {
+                if (tab != Tab.Settings) {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -105,8 +112,10 @@ fun MoonRoot(vm: MoonViewModel) {
                         modifier = Modifier.clickable { vm.refresh() }.padding(8.dp),
                     )
                 }
+                }
             },
             bottomBar = {
+                if (tab != Tab.Settings) {
                 NavigationBar {
                     Tab.entries.forEach { item ->
                         NavigationBarItem(
@@ -126,6 +135,7 @@ fun MoonRoot(vm: MoonViewModel) {
                             label = { Text(item.label) },
                         )
                     }
+                }
                 }
             },
         ) { padding ->
@@ -148,6 +158,9 @@ fun MoonRoot(vm: MoonViewModel) {
                 ) {
                     state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     state.notice?.let { Text(it, color = Brass) }
+                    if (tab == Tab.Settings) {
+                        TextButton(onClick = { tab = Tab.Market }) { Text("Close") }
+                    }
                     when (tab) {
                         Tab.Market -> MarketPage(state, vm)
                         Tab.Studio -> StudioPage(state, vm)
@@ -235,6 +248,7 @@ private fun QuoteRow(quote: QuoteEntity, currency: String, onRemove: () -> Unit)
 @Composable
 private fun StudioPage(state: DeskState, vm: MoonViewModel) {
     Text("Drop a widget on the home screen. Tune it here. GIFs loop in this preview and become a still frame on the launcher.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+    MemePicker(state, vm)
     var pendingId by remember { mutableIntStateOf(-1) }
     val picker = rememberLauncherForActivityResult(PickVisualMedia()) { uri ->
         val config = state.widgets.find { it.appWidgetId == pendingId }
@@ -294,6 +308,63 @@ private fun StudioPage(state: DeskState, vm: MoonViewModel) {
             Text("PNG, JPG, or GIF background")
         }
     }
+}
+
+@Composable
+private fun MemePicker(state: DeskState, vm: MoonViewModel) {
+    var query by remember { mutableStateOf("") }
+    var chain by remember { mutableStateOf("all") }
+    var hits by remember { mutableStateOf<List<SearchCoinDto>>(emptyList()) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(query, chain) {
+        kotlinx.coroutines.delay(250)
+        hits = runCatching { vm.searchMemes(query, chain) }.getOrDefault(emptyList())
+    }
+    Text("Solana and Base memes", color = Brass)
+    OutlinedTextField(query, { query = it }, label = { Text("Search CoinMarketCap") }, modifier = Modifier.fillMaxWidth())
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FilterChip(selected = chain == "all", onClick = { chain = "all" }, label = { Text("Both") })
+        FilterChip(selected = chain == "solana", onClick = { chain = "solana" }, label = { Text("Solana") })
+        FilterChip(selected = chain == "base", onClick = { chain = "base" }, label = { Text("Base") })
+    }
+    hits.forEach { hit ->
+        OutlinedButton(
+            onClick = {
+                val target = state.widgets.find { it.kind == WidgetKinds.TILE || it.kind == WidgetKinds.PILL } ?: state.widgets.firstOrNull()
+                if (target == null) return@OutlinedButton
+                scope.launch { vm.pinMeme(target, hit) }
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("${hit.name} · ${hit.chain} · ${CompactMoney.format(hit.marketCap, "usd")}")
+        }
+    }
+}
+
+@Composable
+private fun AppPicker(onClose: () -> Unit, onPick: (String, String) -> Unit) {
+    val context = LocalContext.current
+    val apps = remember {
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        context.packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
+            .map { it.loadLabel(context.packageManager).toString() to it.activityInfo.packageName }
+            .distinctBy { it.second }
+            .sortedBy { it.first.lowercase() }
+    }
+    AlertDialog(
+        onDismissRequest = onClose,
+        confirmButton = { TextButton(onClick = onClose) { Text("Close") } },
+        title = { Text("Choose app") },
+        text = {
+            LazyColumn(Modifier.height(360.dp)) {
+                items(apps, key = { it.second }) { (label, pkg) ->
+                    TextButton(onClick = { onPick(pkg, label) }, modifier = Modifier.fillMaxWidth()) {
+                        Text(label, modifier = Modifier.fillMaxWidth())
+                    }
+                }
+            }
+        },
+    )
 }
 
 @Composable
@@ -384,15 +455,19 @@ private fun SettingsPage(state: DeskState, vm: MoonViewModel) {
                 Switch(checked = settings.materialYou, onCheckedChange = { checked -> vm.patch { it.copy(materialYou = checked) } })
             }
             Text("Widget tap opens")
-            OutlinedTextField(
-                value = settings.tapPackage,
-                onValueChange = { value -> vm.patch { it.copy(tapPackage = value.trim()) } },
-                label = { Text("App package name") },
-                placeholder = { Text("com.example.app") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-            )
-            Text("The home-screen widget opens this app when tapped.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            var picking by remember { mutableStateOf(false) }
+            Button(onClick = { picking = true }, modifier = Modifier.fillMaxWidth()) {
+                Text(if (settings.tapLabel.isBlank()) "Choose app" else "Opens ${settings.tapLabel}")
+            }
+            if (picking) {
+                AppPicker(
+                    onClose = { picking = false },
+                    onPick = { pkg, label ->
+                        vm.patch { it.copy(tapPackage = pkg, tapLabel = label) }
+                        picking = false
+                    },
+                )
+            }
             Text("Glass ${(settings.glass * 100).toInt()}%")
             Slider(settings.glass, { value -> vm.patch { it.copy(glass = value) } }, valueRange = 0f..0.8f)
             Text("Corners ${settings.radiusDp} dp")

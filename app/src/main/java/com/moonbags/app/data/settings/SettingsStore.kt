@@ -28,6 +28,7 @@ data class UserSettings(
     val hideBalances: Boolean = false,
     val watchIds: String = "bitcoin,ethereum,solana,dogecoin",
     val tapPackage: String = "",
+    val tapLabel: String = "",
 )
 
 class SettingsStore(private val context: Context) {
@@ -48,6 +49,7 @@ class SettingsStore(private val context: Context) {
             hideBalances = prefs[Keys.hide] ?: false,
             watchIds = prefs[Keys.watch] ?: "bitcoin,ethereum,solana,dogecoin",
             tapPackage = prefs[Keys.tapPackage] ?: "",
+            tapLabel = prefs[Keys.tapLabel] ?: "",
         )
     }
 
@@ -70,6 +72,7 @@ class SettingsStore(private val context: Context) {
                     hideBalances = prefs[Keys.hide] ?: false,
                     watchIds = prefs[Keys.watch] ?: "bitcoin,ethereum,solana,dogecoin",
                     tapPackage = prefs[Keys.tapPackage] ?: "",
+                    tapLabel = prefs[Keys.tapLabel] ?: "",
                 ),
             )
             prefs[Keys.currency] = next.currency
@@ -87,6 +90,7 @@ class SettingsStore(private val context: Context) {
             prefs[Keys.hide] = next.hideBalances
             prefs[Keys.watch] = next.watchIds
             prefs[Keys.tapPackage] = next.tapPackage
+            prefs[Keys.tapLabel] = next.tapLabel
         }
     }
 
@@ -106,5 +110,6 @@ class SettingsStore(private val context: Context) {
         val hide = booleanPreferencesKey("hide")
         val watch = stringPreferencesKey("watch")
         val tapPackage = stringPreferencesKey("tap_package")
+        val tapLabel = stringPreferencesKey("tap_label")
     }
 }

@@ -144,12 +144,12 @@ fun render(
     fun money(value: Double) = if (hidden) "••••" else CompactMoney.format(value, currency)
     return when (config.kind) {
         WidgetKinds.TILE -> WidgetSnap(
-            primary = if (config.showPrice) money(coin?.price ?: 0.0) else money(coin?.marketCap ?: 0.0),
-            secondary = if (config.showPrice) "price" else "cap",
+            primary = if (config.showPrice && !config.coinId.startsWith("cmc-")) money(coin?.price ?: 0.0) else money(coin?.marketCap ?: 0.0),
+            secondary = coin?.symbol ?: "",
             up = (coin?.change24h ?: 0.0) >= 0,
-            title = coin?.symbol ?: "COIN",
+            title = if (config.coinId.startsWith("cmc-")) coin?.name ?: "Meme" else coin?.symbol ?: "COIN",
             lines = emptyList(),
-            spark = emptyList(),
+            spark = if (config.coinId.startsWith("cmc-")) parseSpark(coin?.sparkline) else emptyList(),
             background = background,
             scrim = config.scrim,
             hidden = hidden,
@@ -226,8 +226,8 @@ fun fadeBitmap(source: Bitmap?, alpha: Float): Bitmap? {
 }
 
 fun sparkBitmap(values: List<Double>, up: Boolean): Bitmap {
-    val width = 420
-    val height = 140
+    val width = 900
+    val height = 360
     val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
     if (values.size < 2) return bitmap
     val min = values.min()
@@ -241,8 +241,8 @@ fun sparkBitmap(values: List<Double>, up: Boolean): Bitmap {
     }
     val path = Path()
     values.forEachIndexed { index, value ->
-        val x = 8f + index / (values.size - 1f) * (width - 16f)
-        val y = 8f + (1f - ((value - min) / (max - min)).toFloat()) * (height - 16f)
+        val x = 2f + index / (values.size - 1f) * (width - 4f)
+        val y = 4f + (1f - ((value - min) / (max - min)).toFloat()) * (height - 8f)
         if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
     }
     Canvas(bitmap).drawPath(path, paint)
@@ -311,7 +311,7 @@ private fun privacyClick() = actionRunCallback<TogglePrivacyAction>()
 
 class TotalMarketCapWidget : GlanceAppWidget() {
     override val sizeMode = SizeMode.Responsive(
-        setOf(DpSize(110.dp, 40.dp), DpSize(180.dp, 110.dp), DpSize(280.dp, 180.dp)),
+        setOf(DpSize(110.dp, 40.dp), DpSize(180.dp, 120.dp), DpSize(280.dp, 220.dp), DpSize(360.dp, 360.dp)),
     )
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
@@ -337,10 +337,12 @@ class TotalMarketCapWidget : GlanceAppWidget() {
                     style = TextStyle(color = ColorProvider(if (snap.up) UpColor else DownColor), fontSize = 13.sp),
                 )
                 if (height >= 90.dp && snap.spark.size > 1) {
+                    val chartHeight = (height - 96.dp).coerceAtLeast(72.dp)
                     Image(
                         provider = ImageProvider(chart),
                         contentDescription = "Market trend",
-                        modifier = GlanceModifier.fillMaxWidth().height(48.dp),
+                        modifier = GlanceModifier.fillMaxWidth().height(chartHeight),
+                        contentScale = ContentScale.FillBounds,
                     )
                 }
             }
@@ -351,10 +353,19 @@ class TotalMarketCapWidget : GlanceAppWidget() {
 class SingleCoinWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val snap = WidgetSnapshots.load(context, id, WidgetKinds.TILE)
+        val chart = sparkBitmap(snap.spark, snap.up)
         provideContent {
             Chrome(snap) {
-                Text(snap.primary, style = TextStyle(color = ColorProvider(Paper), fontSize = 16.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Start))
-                Text(snap.secondary, style = TextStyle(color = ColorProvider(Brass), fontSize = 11.sp))
+                Text(snap.title, style = TextStyle(color = ColorProvider(Paper), fontSize = 12.sp, fontWeight = FontWeight.Bold))
+                if (snap.spark.size > 1) {
+                    Image(
+                        provider = ImageProvider(chart),
+                        contentDescription = "Trend",
+                        modifier = GlanceModifier.fillMaxWidth().height(40.dp),
+                        contentScale = ContentScale.FillBounds,
+                    )
+                }
+                Text(snap.primary, style = TextStyle(color = ColorProvider(Brass), fontSize = 12.sp))
             }
         }
     }

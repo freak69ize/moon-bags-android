@@ -10,9 +10,16 @@ import com.moonbags.app.data.remote.RemoteBalance
 import com.moonbags.app.data.remote.SearchCoinDto
 import com.moonbags.app.data.security.ExchangeCredentials
 import com.moonbags.app.data.security.SecureCredentialStore
+import com.moonbags.app.data.remote.MoonJson
 import com.moonbags.app.domain.AssetIds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.Request
 
 class MarketRepository(
     private val db: MoonDatabase,
@@ -21,6 +28,35 @@ class MarketRepository(
 ) {
     suspend fun search(query: String): List<SearchCoinDto> = withContext(Dispatchers.IO) {
         HttpClients.gecko.search(query).coins.take(8)
+    }
+
+    suspend fun searchMemes(query: String, chain: String): List<SearchCoinDto> = withContext(Dispatchers.IO) {
+        val needle = query.trim().lowercase()
+        memeCatalog().filter { row ->
+            (chain == "all" || row.chain.equals(chain, true)) &&
+                (needle.isEmpty() || row.name.lowercase().contains(needle) || row.symbol.lowercase().contains(needle))
+        }.take(12)
+    }
+
+    suspend fun pinMeme(hit: SearchCoinDto, currency: String) = withContext(Dispatchers.IO) {
+        val spark = memeSpark(hit.id)
+        val row = memeCatalog().find { it.id == hit.id } ?: hit
+        db.market().upsertQuotes(
+            listOf(
+                QuoteEntity(
+                    coinId = row.id,
+                    symbol = row.symbol.uppercase(),
+                    name = row.name,
+                    price = 0.0,
+                    marketCap = row.marketCap,
+                    change24h = 0.0,
+                    sparkline = spark,
+                    imageUrl = "https://s2.coinmarketcap.com/static/img/coins/64x64/${row.id.removePrefix("cmc-")}.png",
+                    currency = currency.lowercase(),
+                    updatedAt = System.currentTimeMillis(),
+                ),
+            ),
+        )
     }
 
     suspend fun refresh(currency: String, watchIds: List<String>) = withContext(Dispatchers.IO) {
@@ -143,4 +179,51 @@ class MarketRepository(
     }
 
     private data class Overlay(val price: Double, val change: Double?)
+
+    private var memeCache: Pair<Long, List<SearchCoinDto>>? = null
+
+    private fun memeCatalog(): List<SearchCoinDto> {
+        val cached = memeCache
+        if (cached != null && System.currentTimeMillis() - cached.first < 90_000) return cached.second
+        val body = cmc(
+            "https://api.coinmarketcap.com/data-api/v3/cryptocurrency/listing?start=1&limit=200&sortBy=market_cap&sortType=desc&convert=USD&cryptoType=tokens&tagSlugs=memes&aux=platform",
+        )
+        val rows = MoonJson.json.parseToJsonElement(body).jsonObject["data"]?.jsonObject?.get("cryptoCurrencyList")?.jsonArray.orEmpty().mapNotNull { element ->
+            val coin = element.jsonObject
+            val platform = coin["platform"]?.jsonObject?.get("slug")?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+            if (platform != "solana" && platform != "base") return@mapNotNull null
+            val id = coin["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+            val quote = coin["quotes"]?.jsonArray?.firstOrNull()?.jsonObject
+            SearchCoinDto(
+                id = "cmc-$id",
+                symbol = coin["symbol"]?.jsonPrimitive?.contentOrNull?.uppercase().orEmpty(),
+                name = coin["name"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                chain = if (platform == "solana") "Solana" else "Base",
+                marketCap = quote?.get("marketCap")?.jsonPrimitive?.doubleOrNull ?: 0.0,
+            )
+        }
+        memeCache = System.currentTimeMillis() to rows
+        return rows
+    }
+
+    private fun memeSpark(id: String): String {
+        val numeric = id.removePrefix("cmc-")
+        val body = cmc("https://api.coinmarketcap.com/data-api/v3/cryptocurrency/detail/chart?id=$numeric&range=1D")
+        val points = MoonJson.json.parseToJsonElement(body).jsonObject["data"]?.jsonObject?.get("points")?.jsonObject ?: return ""
+        val prices = points.entries.sortedBy { it.key.toLongOrNull() ?: 0L }.mapNotNull { entry ->
+            entry.value.jsonObject["v"]?.jsonArray?.firstOrNull()?.jsonPrimitive?.doubleOrNull
+        }
+        if (prices.size < 2) return ""
+        val step = (prices.size / 36).coerceAtLeast(1)
+        return prices.filterIndexed { index, _ -> index % step == 0 }.joinToString(",")
+    }
+
+    private fun cmc(url: String): String {
+        val request = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").header("Accept", "application/json").get().build()
+        HttpClients.okHttp.newCall(request).execute().use { response ->
+            val text = response.body?.string().orEmpty()
+            if (!response.isSuccessful) error(text.ifBlank { "CoinMarketCap ${response.code}" })
+            return text
+        }
+    }
 }
