@@ -2,6 +2,7 @@ package com.moonbags.app.ui
 
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
@@ -321,7 +322,7 @@ private fun MemePicker(state: DeskState, vm: MoonViewModel) {
         hits = runCatching { vm.searchMemes(query, chain) }.getOrDefault(emptyList())
     }
     Text("Solana and Base memes", color = Brass)
-    OutlinedTextField(query, { query = it }, label = { Text("Search CoinMarketCap") }, modifier = Modifier.fillMaxWidth())
+    OutlinedTextField(query, { query = it }, label = { Text("Name or contract address") }, modifier = Modifier.fillMaxWidth())
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         FilterChip(selected = chain == "all", onClick = { chain = "all" }, label = { Text("Both") })
         FilterChip(selected = chain == "solana", onClick = { chain = "solana" }, label = { Text("Solana") })
@@ -346,7 +347,12 @@ private fun AppPicker(onClose: () -> Unit, onPick: (String, String) -> Unit) {
     val context = LocalContext.current
     val apps = remember {
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-        context.packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
+        val resolved = if (Build.VERSION.SDK_INT >= 33) {
+            context.packageManager.queryIntentActivities(intent, PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_ALL.toLong()))
+        } else {
+            context.packageManager.queryIntentActivities(intent, PackageManager.MATCH_ALL)
+        }
+        resolved
             .map { it.loadLabel(context.packageManager).toString() to it.activityInfo.packageName }
             .distinctBy { it.second }
             .sortedBy { it.first.lowercase() }

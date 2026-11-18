@@ -8,7 +8,6 @@ import android.graphics.Paint
 import android.graphics.Path
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
@@ -42,6 +41,7 @@ import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
 import androidx.glance.layout.padding
+import androidx.glance.layout.defaultWeight
 import androidx.glance.layout.size
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
@@ -124,7 +124,7 @@ object WidgetSnapshots {
         val global = graph.db.market().global(settings.currency)
         val quotes = graph.db.market().quotes().filter { it.currency == settings.currency }
         val holdings = graph.db.holdings().all()
-        val background = fadeBitmap(graph.media.decodeForWidget(config.backgroundPath), config.alpha)
+        val background = graph.media.decodeForWidget(config.backgroundPath, 360)
         return render(config, settings.currency, settings.hideBalances, global, quotes, holdings, background)
             .copy(alpha = config.alpha, tapPackage = settings.tapPackage)
     }
@@ -226,26 +226,37 @@ fun fadeBitmap(source: Bitmap?, alpha: Float): Bitmap? {
 }
 
 fun sparkBitmap(values: List<Double>, up: Boolean): Bitmap {
-    val width = 900
-    val height = 360
+    val width = 480
+    val height = 220
     val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
     if (values.size < 2) return bitmap
     val min = values.min()
     val max = values.max().let { if (it == min) it + 1 else it }
-    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = if (up) 0xFF3DDC84.toInt() else 0xFFFF4D4D.toInt()
+    val color = if (up) 0xFF3DDC84.toInt() else 0xFFFF4D4D.toInt()
+    val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        this.color = color
         style = Paint.Style.STROKE
-        strokeWidth = 4f
+        strokeWidth = 8f
         strokeJoin = Paint.Join.ROUND
         strokeCap = Paint.Cap.ROUND
     }
+    val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        this.color = if (up) 0x553DDC84 else 0x55FF4D4D
+        style = Paint.Style.FILL
+    }
     val path = Path()
     values.forEachIndexed { index, value ->
-        val x = 2f + index / (values.size - 1f) * (width - 4f)
-        val y = 4f + (1f - ((value - min) / (max - min)).toFloat()) * (height - 8f)
+        val x = index / (values.size - 1f) * width
+        val y = ((1f - ((value - min) / (max - min)).toFloat()) * (height - 8f)) + 4f
         if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
     }
-    Canvas(bitmap).drawPath(path, paint)
+    val area = Path(path)
+    area.lineTo(width.toFloat(), height.toFloat())
+    area.lineTo(0f, height.toFloat())
+    area.close()
+    val canvas = Canvas(bitmap)
+    canvas.drawPath(area, fill)
+    canvas.drawPath(path, stroke)
     return bitmap
 }
 
@@ -261,7 +272,7 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, body: @Composable () 
         }
     }
     val veil = Ink.copy(alpha = snap.alpha.coerceIn(0.15f, 1f))
-    Box(modifier = GlanceModifier.fillMaxSize().cornerRadius(22.dp).background(ColorProvider(veil))) {
+    Box(modifier = GlanceModifier.fillMaxSize().cornerRadius(22.dp)) {
         if (snap.background != null) {
             Image(
                 provider = ImageProvider(snap.background),
@@ -269,9 +280,13 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, body: @Composable () 
                 modifier = GlanceModifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
             )
-            Box(
-                modifier = GlanceModifier.fillMaxSize().background(ColorProvider(Color.Black.copy(alpha = snap.scrim.coerceIn(0f, 0.9f) * snap.alpha))),
-            ) {}
+            if (snap.scrim > 0.02f) {
+                Box(
+                    modifier = GlanceModifier.fillMaxSize().background(ColorProvider(Color.Black.copy(alpha = snap.scrim.coerceIn(0f, 0.9f)))),
+                ) {}
+            }
+        } else {
+            Box(modifier = GlanceModifier.fillMaxSize().background(ColorProvider(veil))) {}
         }
         Column(modifier = GlanceModifier.fillMaxSize().padding(10.dp)) {
             Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -299,10 +314,11 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, body: @Composable () 
 
 @Composable
 private fun OpenBody(open: Action?, body: @Composable () -> Unit) {
+    val modifier = GlanceModifier.fillMaxWidth().defaultWeight()
     if (open == null) {
-        body()
+        Column(modifier) { body() }
     } else {
-        Box(modifier = GlanceModifier.fillMaxSize().clickable(open)) { body() }
+        Column(modifier.clickable(open)) { body() }
     }
 }
 
@@ -310,9 +326,7 @@ private fun refreshClick() = actionRunCallback<RefreshAction>()
 private fun privacyClick() = actionRunCallback<TogglePrivacyAction>()
 
 class TotalMarketCapWidget : GlanceAppWidget() {
-    override val sizeMode = SizeMode.Responsive(
-        setOf(DpSize(110.dp, 40.dp), DpSize(180.dp, 120.dp), DpSize(280.dp, 220.dp), DpSize(360.dp, 360.dp)),
-    )
+    override val sizeMode = SizeMode.Exact
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val snap = WidgetSnapshots.load(context, id, WidgetKinds.MCAP)
@@ -336,12 +350,11 @@ class TotalMarketCapWidget : GlanceAppWidget() {
                     snap.secondary + " 24h",
                     style = TextStyle(color = ColorProvider(if (snap.up) UpColor else DownColor), fontSize = 13.sp),
                 )
-                if (height >= 90.dp && snap.spark.size > 1) {
-                    val chartHeight = (height - 96.dp).coerceAtLeast(72.dp)
+                if (snap.spark.size > 1) {
                     Image(
                         provider = ImageProvider(chart),
                         contentDescription = "Market trend",
-                        modifier = GlanceModifier.fillMaxWidth().height(chartHeight),
+                        modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
                         contentScale = ContentScale.FillBounds,
                     )
                 }
@@ -361,7 +374,7 @@ class SingleCoinWidget : GlanceAppWidget() {
                     Image(
                         provider = ImageProvider(chart),
                         contentDescription = "Trend",
-                        modifier = GlanceModifier.fillMaxWidth().height(40.dp),
+                        modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
                         contentScale = ContentScale.FillBounds,
                     )
                 }
@@ -391,7 +404,7 @@ class SparklineWidget : GlanceAppWidget() {
             Chrome(snap) {
                 Text(snap.primary, style = TextStyle(color = ColorProvider(Paper), fontSize = 22.sp, fontWeight = FontWeight.Bold))
                 Text(snap.secondary, style = TextStyle(color = ColorProvider(if (snap.up) UpColor else DownColor), fontSize = 12.sp))
-                Image(provider = ImageProvider(chart), contentDescription = "7 day trend", modifier = GlanceModifier.fillMaxWidth().height(64.dp))
+                Image(provider = ImageProvider(chart), contentDescription = "7 day trend", modifier = GlanceModifier.fillMaxWidth().defaultWeight(), contentScale = ContentScale.FillBounds)
             }
         }
     }

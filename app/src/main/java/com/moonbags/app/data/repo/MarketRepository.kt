@@ -31,10 +31,13 @@ class MarketRepository(
     }
 
     suspend fun searchMemes(query: String, chain: String): List<SearchCoinDto> = withContext(Dispatchers.IO) {
-        val needle = query.trim().lowercase()
+        val needle = query.trim()
+        val found = runCatching { searchDex(needle) }.getOrDefault(emptyList())
+        val filtered = found.filter { row -> chain == "all" || row.chain.equals(chain, true) }
+        if (isContract(needle) || filtered.isNotEmpty()) return@withContext filtered.take(12)
         memeCatalog().filter { row ->
             (chain == "all" || row.chain.equals(chain, true)) &&
-                (needle.isEmpty() || row.name.lowercase().contains(needle) || row.symbol.lowercase().contains(needle))
+                (needle.isEmpty() || row.name.contains(needle, true) || row.symbol.contains(needle, true))
         }.take(12)
     }
 
@@ -206,8 +209,35 @@ class MarketRepository(
         return rows
     }
 
+    private fun isContract(value: String): Boolean {
+        val trimmed = value.trim()
+        return trimmed.matches(Regex("^0x[a-fA-F0-9]{40}$")) || trimmed.matches(Regex("^[1-9A-HJ-NP-Za-km-z]{32,44}$"))
+    }
+
+    private fun searchDex(query: String): List<SearchCoinDto> {
+        if (query.length < 2) return emptyList()
+        val body = cmc("https://pro-api.coinmarketcap.com/public-api/v1/dex/search?q=${java.net.URLEncoder.encode(query, "UTF-8")}")
+        val tokens = MoonJson.json.parseToJsonElement(body).jsonObject["data"]?.jsonObject?.get("tks")?.jsonArray.orEmpty()
+        return tokens.mapNotNull { element ->
+            val token = element.jsonObject
+            val platform = token["plt"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+            if (platform != "Solana" && platform != "Base") return@mapNotNull null
+            val address = token["addr"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+            val cid = token["cid"]?.jsonPrimitive?.contentOrNull
+            val id = if (!cid.isNullOrBlank() && cid != "0") "cmc-$cid" else if (platform == "Solana") "dexsol-$address" else "dexbase-$address"
+            SearchCoinDto(
+                id = id,
+                symbol = token["s"]?.jsonPrimitive?.contentOrNull?.uppercase().orEmpty(),
+                name = token["n"]?.jsonPrimitive?.contentOrNull ?: "Token",
+                chain = platform,
+                marketCap = token["mc"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
+            )
+        }
+    }
+
     private fun memeSpark(id: String): String {
         val numeric = id.removePrefix("cmc-")
+        if (!numeric.all { it.isDigit() }) return ""
         val body = cmc("https://api.coinmarketcap.com/data-api/v3/cryptocurrency/detail/chart?id=$numeric&range=1D")
         val points = MoonJson.json.parseToJsonElement(body).jsonObject["data"]?.jsonObject?.get("points")?.jsonObject ?: return ""
         val prices = points.entries.sortedBy { it.key.toLongOrNull() ?: 0L }.mapNotNull { entry ->
