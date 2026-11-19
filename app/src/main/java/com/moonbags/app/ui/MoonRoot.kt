@@ -66,6 +66,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
@@ -170,8 +171,8 @@ private fun TapePage(state: DeskState, vm: MoonViewModel) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val watch = state.settings.watchIds.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
-    Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 64.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 12.dp, end = 12.dp, top = 64.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             state.error?.let { Text(it, color = Down) }
             state.quotes.filter { it.coinId in watch }.forEach { quote ->
                 WatchedRow(quote, currency, sub) {
@@ -255,14 +256,16 @@ private fun spotLabel(price: Double, currency: String) = if (price > 0 && price 
 @Composable
 private fun WatchedRow(quote: QuoteEntity, currency: String, sub: Color, onRemove: () -> Unit) {
     var drag by remember(quote.coinId) { mutableFloatStateOf(0f) }
+    val up = quote.change24h >= 0
     Box(Modifier.fillMaxWidth()) {
-        Text("Remove", color = Color(0xFFFF5A6A), modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp))
+        Text("Remove", color = Color(0xFFFF5A6A), modifier = Modifier.align(Alignment.CenterStart).padding(start = 12.dp))
         Row(
             Modifier
                 .fillMaxWidth()
                 .offset { androidx.compose.ui.unit.IntOffset(drag.roundToInt(), 0) }
-                .background(Color(0xFF1C1C1E))
-                .padding(vertical = 10.dp)
+                .clip(RoundedCornerShape(22.dp))
+                .background(Color(0xFF141414))
+                .padding(horizontal = 12.dp, vertical = 12.dp)
                 .pointerInput(quote.coinId) {
                     detectHorizontalDragGestures(
                         onDragEnd = {
@@ -274,27 +277,53 @@ private fun WatchedRow(quote: QuoteEntity, currency: String, sub: Color, onRemov
                 },
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(Color.White), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(48.dp).clip(CircleShape).background(Color.White), contentAlignment = Alignment.Center) {
                 if (!quote.imageUrl.isNullOrBlank()) {
                     AsyncImage(model = quote.imageUrl, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                 } else {
                     Text(quote.symbol.take(1), color = Color.Black, fontWeight = FontWeight.Bold)
                 }
             }
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(quote.name, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, modifier = Modifier.weight(1f))
-                    Text(spotLabel(quote.price, currency), color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
-                }
-                Text(
-                    spotLabel(quote.price, currency) + (if (quote.change24h >= 0) "  ▲  " else "  ▼  ") + quote.symbol + "  " + CompactMoney.format(quote.marketCap, currency),
-                    color = sub,
-                    fontSize = 13.sp,
-                )
+                Text(quote.name, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(quote.symbol.uppercase(), color = sub, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            MiniSpark(quote.sparkline, up, Modifier.width(64.dp).height(36.dp))
+            Spacer(Modifier.width(8.dp))
+            Column(Modifier.width(86.dp), horizontalAlignment = Alignment.End) {
+                Text(tapePrice(quote.price, currency), color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text((if (up) "↗ " else "↘ ") + String.format("%.2f%%", kotlin.math.abs(quote.change24h)), color = if (up) Color(0xFF3DDC84) else Color(0xFFFF6B81), fontSize = 13.sp, maxLines = 1)
             }
         }
     }
+}
+
+@Composable
+private fun MiniSpark(raw: String, up: Boolean, modifier: Modifier) {
+    val values = remember(raw) { raw.split(",").mapNotNull { it.toDoubleOrNull() } }
+    Canvas(modifier) {
+        if (values.size < 2) return@Canvas
+        val min = values.min()
+        val max = values.max().let { if (it == min) it + 1.0 else it }
+        val path = androidx.compose.ui.graphics.Path()
+        values.forEachIndexed { index, value ->
+            val x = index / (values.size - 1f) * size.width
+            val y = (1f - ((value - min) / (max - min)).toFloat()) * size.height
+            if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        }
+        drawPath(path, color = if (up) Color(0xFF3DDC84) else Color(0xFFFF6B81), style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
+    }
+}
+
+private fun tapePrice(price: Double, currency: String): String {
+    val symbol = when (currency.lowercase()) {
+        "eur" -> "€"
+        "gbp" -> "£"
+        "jpy" -> "¥"
+        else -> "$"
+    }
+    return if (price >= 1.0) symbol + String.format("%,.2f", price) else symbol + String.format("%.8f", price)
 }
 
 private fun parseHex(hex: String): Color = runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrDefault(Color(0xFF8E8E93))
