@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
@@ -173,6 +174,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel) {
     val sub = parseHex(state.settings.subtextColor)
     var query by remember { mutableStateOf("") }
     var hits by remember { mutableStateOf<List<SearchCoinDto>>(emptyList()) }
+    var searchOpen by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val watch = state.settings.watchIds.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
@@ -185,96 +187,73 @@ private fun TapePage(state: DeskState, vm: MoonViewModel) {
                 }
             }
         }
-        if (hits.isNotEmpty()) {
-            Column(
-                Modifier.align(Alignment.BottomCenter).padding(start = 12.dp, end = 12.dp, bottom = 132.dp).clip(RoundedCornerShape(22.dp)).background(Color(0xB3121212)).border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(22.dp)),
-            ) {
-                hits.take(8).forEach { hit ->
-                    Row(
-                        Modifier.fillMaxWidth().clickable {
-                            vm.addWatched(hit)
-                            query = ""
-                            hits = emptyList()
-                        }.padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(Color.White), contentAlignment = Alignment.Center) {
-                            if (hit.image.isNotBlank()) {
-                                AsyncImage(model = hit.image, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                            } else {
-                                Text(hit.symbol.take(1), color = Color.Black)
-                            }
+        if (searchOpen) {
+            Column(Modifier.fillMaxSize().background(Color(0xFF0C0C0E)).statusBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp)) {
+                SearchGrabber(searchOpen) { searchOpen = it }
+                Spacer(Modifier.height(8.dp))
+                SearchField(query, onScan = {
+                    val options = GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
+                    GmsBarcodeScanning.getClient(context, options).startScan()
+                        .addOnSuccessListener { barcode ->
+                            query = barcode.rawValue.orEmpty()
+                            scope.launch { hits = if (query.length < 2) emptyList() else runCatching { vm.search(query) }.getOrDefault(emptyList()) }
                         }
-                        Spacer(Modifier.width(10.dp))
-                        Column(Modifier.weight(1f)) {
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text(hit.name, color = Color.White, fontWeight = FontWeight.SemiBold)
-                                Text(spotLabel(hit.price, currency), color = Color.White)
+                }) {
+                    query = it
+                    scope.launch { hits = if (it.trim().length < 2) emptyList() else runCatching { vm.search(it) }.getOrDefault(emptyList()) }
+                }
+                Spacer(Modifier.height(8.dp))
+                Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+                    if (hits.isEmpty()) {
+                        Text(if (query.trim().length < 2) "Search a name or contract." else "No coins matched.", color = Color(0xFF8E8E93), modifier = Modifier.padding(top = 28.dp).fillMaxWidth(), fontSize = 14.sp)
+                    }
+                    hits.forEach { hit ->
+                        Row(
+                            Modifier.fillMaxWidth().clickable {
+                                vm.addWatched(hit)
+                                query = ""
+                                hits = emptyList()
+                                searchOpen = false
+                            }.padding(vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(Modifier.size(44.dp).clip(CircleShape).background(Color.White), contentAlignment = Alignment.Center) {
+                                if (hit.image.isNotBlank()) {
+                                    AsyncImage(model = hit.image, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                                } else {
+                                    Text(hit.symbol.take(1), color = Color.Black)
+                                }
                             }
-                            Text(hit.symbol.uppercase() + "  " + CompactMoney.format(hit.marketCap, currency) + if (hit.chain.isBlank()) "" else "  " + hit.chain, color = sub, fontSize = 12.sp)
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(hit.name, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(hit.symbol.uppercase() + if (hit.chain.isBlank()) "" else "  " + hit.chain, color = sub, fontSize = 13.sp, maxLines = 1)
+                            }
+                            Text(spotLabel(hit.price, currency), color = Color.White)
                         }
                     }
                 }
             }
         }
-        Column(
-            Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp))
-                .background(Color(0x8C141414))
-                .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp))
-                .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Box(Modifier.width(40.dp).height(4.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.4f)))
-            Spacer(Modifier.height(12.dp))
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Row(
-                    Modifier
-                        .weight(1f)
-                        .height(48.dp)
-                        .clip(CircleShape)
-                        .background(Color(0x4D000000))
-                        .border(1.dp, Color.White.copy(alpha = 0.16f), CircleShape)
-                        .padding(horizontal = 18.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Outlined.Search, contentDescription = null, tint = Color(0xFFF3F4F6), modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(10.dp))
-                    BasicTextField(
-                        value = query,
-                        onValueChange = {
-                            query = it
-                            scope.launch { hits = if (it.trim().length < 2) emptyList() else runCatching { vm.search(it) }.getOrDefault(emptyList()) }
-                        },
-                        singleLine = true,
-                        textStyle = TextStyle(color = Color.White, fontSize = 13.sp, letterSpacing = 1.1.sp),
-                        cursorBrush = androidx.compose.ui.graphics.SolidColor(Color.White),
-                        modifier = Modifier.weight(1f),
-                        decorationBox = { inner ->
-                            Box(contentAlignment = Alignment.CenterStart) {
-                                if (query.isEmpty()) {
-                                    Text("SEARCH COINMARKETCAP", color = Color(0xFF9CA3AF), fontSize = 13.sp, letterSpacing = 1.1.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                }
-                                inner()
-                            }
-                        },
-                    )
-                }
-                Spacer(Modifier.width(8.dp))
+        if (!searchOpen) {
+            Column(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(start = 12.dp, end = 12.dp, bottom = 12.dp)
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(28.dp))
+                    .background(Color(0x99121214))
+                    .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(28.dp))
+                    .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                SearchGrabber(false) { searchOpen = it }
                 Box(
-                    Modifier.size(48.dp).clip(CircleShape).background(Color(0x4D000000)).border(1.dp, Color.White.copy(alpha = 0.16f), CircleShape).clickable {
-                        val options = GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
-                        GmsBarcodeScanning.getClient(context, options).startScan()
-                            .addOnSuccessListener { barcode ->
-                                query = barcode.rawValue.orEmpty()
-                                scope.launch { hits = if (query.length < 2) emptyList() else runCatching { vm.search(query) }.getOrDefault(emptyList()) }
-                            }
-                    },
+                    Modifier.fillMaxWidth().height(52.dp).clip(CircleShape).background(Color(0xFF3A3A3C)).clickable { searchOpen = true },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(Icons.Outlined.QrCodeScanner, contentDescription = "Scan QR", tint = Color(0xFFF3F4F6))
+                    Icon(Icons.Outlined.Search, contentDescription = null, tint = Color.White, modifier = Modifier.align(Alignment.CenterStart).padding(start = 16.dp).size(20.dp))
+                    Text("SEARCH COINMARKETCAP", color = Color(0xFFC7C7CC), fontSize = 15.sp)
                 }
             }
         }
@@ -282,6 +261,68 @@ private fun TapePage(state: DeskState, vm: MoonViewModel) {
 }
 
 private fun spotLabel(price: Double, currency: String) = if (price > 0 && price < 0.01) "<$0.01" else CompactMoney.format(price, currency)
+
+@Composable
+private fun SearchGrabber(open: Boolean, onChange: (Boolean) -> Unit) {
+    var pull by remember { mutableFloatStateOf(0f) }
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(28.dp)
+            .pointerInput(open) {
+                detectTapGestures { onChange(!open) }
+            }
+            .pointerInput(open) {
+                detectVerticalDragGestures(
+                    onDragEnd = {
+                        if (pull < -24f) onChange(true)
+                        else if (pull > 24f) onChange(false)
+                        pull = 0f
+                    },
+                    onVerticalDrag = { _, amount -> pull += amount },
+                )
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(Modifier.width(36.dp).height(4.dp).clip(CircleShape).background(Color(0xFF8E8E93)))
+    }
+}
+
+@Composable
+private fun SearchField(value: String, onScan: (() -> Unit)?, onChange: (String) -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            Modifier
+                .weight(1f)
+                .height(52.dp)
+                .clip(CircleShape)
+                .background(Color(0xFF3A3A3C)),
+        ) {
+            Icon(Icons.Outlined.Search, contentDescription = null, tint = Color.White, modifier = Modifier.align(Alignment.CenterStart).padding(start = 16.dp).size(20.dp))
+            BasicTextField(
+                value = value,
+                onValueChange = onChange,
+                singleLine = true,
+                textStyle = TextStyle(color = Color(0xFFC7C7CC), fontSize = 16.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center),
+                cursorBrush = androidx.compose.ui.graphics.SolidColor(Color(0xFFC7C7CC)),
+                modifier = Modifier.fillMaxSize().padding(horizontal = 44.dp),
+                decorationBox = { inner ->
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        if (value.isEmpty()) {
+                            Text("SEARCH COINMARKETCAP", color = Color(0xFFC7C7CC), fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        inner()
+                    }
+                },
+            )
+        }
+        if (onScan != null) {
+            Box(Modifier.size(48.dp).clickable(onClick = onScan), contentAlignment = Alignment.Center) {
+                Icon(Icons.Outlined.QrCodeScanner, contentDescription = "Scan QR", tint = Color(0xFFF3F4F6))
+            }
+        }
+    }
+}
 
 @Composable
 private fun WatchedRow(quote: QuoteEntity, currency: String, sub: Color, onRemove: () -> Unit) {
