@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -64,7 +65,6 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -128,20 +128,21 @@ fun MoonRoot(vm: MoonViewModel) {
             }
             if (page == Page.Tape) {
                 Row(
-                    Modifier.align(Alignment.TopEnd).padding(12.dp).clip(CircleShape).background(Pill).padding(horizontal = 4.dp),
+                    Modifier.align(Alignment.TopStart).fillMaxWidth().statusBarsPadding().padding(start = 16.dp, end = 8.dp, top = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Box(
-                        Modifier.size(40.dp).clickable { page = Page.Widgets },
-                        contentAlignment = Alignment.Center,
+                    Text("MoonBags", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    Row(
+                        Modifier.clip(CircleShape).background(Pill).padding(horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Box(Modifier.size(18.dp).clip(CircleShape).background(Color.Transparent).then(Modifier)) {
+                        Box(Modifier.size(40.dp).clickable { page = Page.Widgets }, contentAlignment = Alignment.Center) {
                             Canvas(Modifier.size(18.dp)) {
                                 drawCircle(Color.White, style = Stroke(width = 2.dp.toPx()))
                             }
                         }
+                        Icon(Icons.Outlined.MoreVert, contentDescription = "Settings", tint = Color.White, modifier = Modifier.size(40.dp).clickable { page = Page.Settings })
                     }
-                    Icon(Icons.Outlined.MoreVert, contentDescription = "Settings", tint = Color.White, modifier = Modifier.size(40.dp).clickable { page = Page.Settings })
                 }
             }
         }
@@ -156,7 +157,7 @@ private fun LaunchSplash(path: String?, onSkip: () -> Unit) {
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)))
         }
         Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Moon Bags", color = com.moonbags.app.ui.theme.Paper, fontFamily = FontFamily.Serif, style = MaterialTheme.typography.displayMedium)
+            Text("Moon Bags", color = com.moonbags.app.ui.theme.Paper, style = MaterialTheme.typography.displayMedium)
             Text("NIGHT DESK", color = Brass)
         }
     }
@@ -172,7 +173,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel) {
     val context = LocalContext.current
     val watch = state.settings.watchIds.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 12.dp, end = 12.dp, top = 64.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(start = 12.dp, end = 12.dp, top = 64.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             state.error?.let { Text(it, color = Down) }
             state.quotes.filter { it.coinId in watch }.forEach { quote ->
                 WatchedRow(quote, currency, sub) {
@@ -258,7 +259,16 @@ private fun WatchedRow(quote: QuoteEntity, currency: String, sub: Color, onRemov
     var drag by remember(quote.coinId) { mutableFloatStateOf(0f) }
     val up = quote.change24h >= 0
     Box(Modifier.fillMaxWidth()) {
-        Text("Remove", color = Color(0xFFFF5A6A), modifier = Modifier.align(Alignment.CenterStart).padding(start = 12.dp))
+        Box(
+            Modifier
+                .align(Alignment.CenterStart)
+                .size(72.dp)
+                .background(Color(0xFFE10600))
+                .clickable(enabled = drag > 36f, onClick = onRemove),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (drag > 36f) Text("Delete", color = Color.White, fontSize = 13.sp)
+        }
         Row(
             Modifier
                 .fillMaxWidth()
@@ -268,11 +278,8 @@ private fun WatchedRow(quote: QuoteEntity, currency: String, sub: Color, onRemov
                 .padding(horizontal = 12.dp, vertical = 12.dp)
                 .pointerInput(quote.coinId) {
                     detectHorizontalDragGestures(
-                        onDragEnd = {
-                            if (drag > 90f) onRemove()
-                            drag = 0f
-                        },
-                        onHorizontalDrag = { _, amount -> drag = (drag + amount).coerceIn(0f, 160f) },
+                        onDragEnd = { drag = if (drag > 40f) 80f else 0f },
+                        onHorizontalDrag = { _, amount -> drag = (drag + amount).coerceIn(0f, 84f) },
                     )
                 },
             verticalAlignment = Alignment.CenterVertically,
@@ -380,7 +387,7 @@ private fun QuoteRow(quote: QuoteEntity, currency: String, onRemove: () -> Unit)
             Text(quote.name, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Column(horizontalAlignment = Alignment.End) {
-            Text(CompactMoney.format(quote.price, currency), fontFamily = FontFamily.Serif)
+            Text(CompactMoney.format(quote.price, currency))
             Text(CompactMoney.percent(quote.change24h), color = if (quote.change24h >= 0) Up else Down)
             TextButton(onClick = onRemove) { Text("Remove") }
         }
@@ -418,7 +425,7 @@ private fun StudioPage(state: DeskState, vm: MoonViewModel) {
             }
             Column {
                 Text(snap.title, color = Brass)
-                Text(snap.primary, fontFamily = FontFamily.Serif, style = MaterialTheme.typography.headlineMedium)
+                Text(snap.primary, style = MaterialTheme.typography.headlineMedium)
                 Text(snap.secondary, color = if (snap.up) Up else Down)
                 TrendLine(snap.spark, snap.up)
                 snap.lines.forEach { Text("${it.first}  ${it.second}") }
@@ -555,7 +562,7 @@ private fun BagsPage(state: DeskState, vm: MoonViewModel) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Column {
             Text("Net worth", color = Brass)
-            Text(if (hidden) "••••" else CompactMoney.format(total, currency), fontFamily = FontFamily.Serif, style = MaterialTheme.typography.headlineLarge)
+            Text(if (hidden) "••••" else CompactMoney.format(total, currency), style = MaterialTheme.typography.headlineLarge)
         }
         TextButton(onClick = { vm.patch { it.copy(hideBalances = !hidden) } }) { Text(if (hidden) "Show" else "Hide") }
     }

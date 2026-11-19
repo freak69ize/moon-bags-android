@@ -30,7 +30,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.moonbags.app.MoonBagsApp
 import com.moonbags.app.data.local.QuoteEntity
@@ -84,11 +83,10 @@ private fun ConfigureForm(appWidgetId: Int, kind: String, onDone: (Boolean) -> U
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Place widget", style = MaterialTheme.typography.headlineMedium, fontFamily = FontFamily.Serif)
+        Text("Place widget", style = MaterialTheme.typography.headlineMedium)
         Text(kindLabel(kind), color = MaterialTheme.colorScheme.primary)
         Text(
             if (kind == WidgetKinds.MCAP) "Total market cap" else CompactMoney.format(coin?.price ?: 0.0, "usd"),
-            fontFamily = FontFamily.Serif,
             style = MaterialTheme.typography.displaySmall,
         )
         if (kind != WidgetKinds.MCAP && kind != WidgetKinds.BOOK && kind != WidgetKinds.WATCH) {
