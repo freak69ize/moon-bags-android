@@ -40,6 +40,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.foundation.border
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -173,7 +177,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel) {
     val context = LocalContext.current
     val watch = state.settings.watchIds.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(start = 12.dp, end = 12.dp, top = 64.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(start = 12.dp, end = 12.dp, top = 64.dp, bottom = 148.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             state.error?.let { Text(it, color = Down) }
             state.quotes.filter { it.coinId in watch }.forEach { quote ->
                 WatchedRow(quote, currency, sub) {
@@ -183,7 +187,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel) {
         }
         if (hits.isNotEmpty()) {
             Column(
-                Modifier.align(Alignment.BottomCenter).padding(start = 16.dp, end = 16.dp, bottom = 84.dp).clip(RoundedCornerShape(16.dp)).background(Card).padding(vertical = 4.dp),
+                Modifier.align(Alignment.BottomCenter).padding(start = 12.dp, end = 12.dp, bottom = 132.dp).clip(RoundedCornerShape(22.dp)).background(Color(0xB3121212)).border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(22.dp)),
             ) {
                 hits.take(8).forEach { hit ->
                     Row(
@@ -213,40 +217,65 @@ private fun TapePage(state: DeskState, vm: MoonViewModel) {
                 }
             }
         }
-        Row(Modifier.align(Alignment.BottomCenter).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = {
-                    query = it
-                    scope.launch { hits = if (it.trim().length < 2) emptyList() else runCatching { vm.search(it) }.getOrDefault(emptyList()) }
-                },
-                modifier = Modifier.weight(1f),
-                placeholder = { Text("Search Crypto") },
-                singleLine = true,
-                shape = CircleShape,
-                colors = androidx.compose.material3.TextFieldDefaults.colors(
-                    focusedContainerColor = Pill,
-                    unfocusedContainerColor = Pill,
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                    cursorColor = Color.White,
-                ),
-            )
-            Spacer(Modifier.width(8.dp))
-            Box(
-                Modifier.size(48.dp).clip(CircleShape).background(Pill).clickable {
-                    val options = GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
-                    GmsBarcodeScanning.getClient(context, options).startScan()
-                        .addOnSuccessListener { barcode ->
-                            query = barcode.rawValue.orEmpty()
-                            scope.launch { hits = if (query.length < 2) emptyList() else runCatching { vm.search(query) }.getOrDefault(emptyList()) }
-                        }
-                },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Outlined.QrCodeScanner, contentDescription = "Scan QR", tint = Color.White)
+        Column(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp))
+                .background(Color(0x8C141414))
+                .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp))
+                .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Box(Modifier.width(40.dp).height(4.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.4f)))
+            Spacer(Modifier.height(12.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                        .clip(CircleShape)
+                        .background(Color(0x4D000000))
+                        .border(1.dp, Color.White.copy(alpha = 0.16f), CircleShape)
+                        .padding(horizontal = 18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Outlined.Search, contentDescription = null, tint = Color(0xFFF3F4F6), modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(10.dp))
+                    BasicTextField(
+                        value = query,
+                        onValueChange = {
+                            query = it
+                            scope.launch { hits = if (it.trim().length < 2) emptyList() else runCatching { vm.search(it) }.getOrDefault(emptyList()) }
+                        },
+                        singleLine = true,
+                        textStyle = TextStyle(color = Color.White, fontSize = 13.sp, letterSpacing = 1.1.sp),
+                        cursorBrush = androidx.compose.ui.graphics.SolidColor(Color.White),
+                        modifier = Modifier.weight(1f),
+                        decorationBox = { inner ->
+                            Box(contentAlignment = Alignment.CenterStart) {
+                                if (query.isEmpty()) {
+                                    Text("SEARCH COINMARKETCAP", color = Color(0xFF9CA3AF), fontSize = 13.sp, letterSpacing = 1.1.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                                inner()
+                            }
+                        },
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                Box(
+                    Modifier.size(48.dp).clip(CircleShape).background(Color(0x4D000000)).border(1.dp, Color.White.copy(alpha = 0.16f), CircleShape).clickable {
+                        val options = GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
+                        GmsBarcodeScanning.getClient(context, options).startScan()
+                            .addOnSuccessListener { barcode ->
+                                query = barcode.rawValue.orEmpty()
+                                scope.launch { hits = if (query.length < 2) emptyList() else runCatching { vm.search(query) }.getOrDefault(emptyList()) }
+                            }
+                    },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Outlined.QrCodeScanner, contentDescription = "Scan QR", tint = Color(0xFFF3F4F6))
+                }
             }
         }
     }
