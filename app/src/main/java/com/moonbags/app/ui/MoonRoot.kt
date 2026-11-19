@@ -10,7 +10,10 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -61,6 +64,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -174,7 +179,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel) {
     val sub = parseHex(state.settings.subtextColor)
     var query by remember { mutableStateOf("") }
     var hits by remember { mutableStateOf<List<SearchCoinDto>>(emptyList()) }
-    var searchOpen by remember { mutableStateOf(false) }
+    val lift = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val watch = state.settings.watchIds.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
@@ -187,73 +192,83 @@ private fun TapePage(state: DeskState, vm: MoonViewModel) {
                 }
             }
         }
-        if (searchOpen) {
-            Column(Modifier.fillMaxSize().background(Color(0xFF0C0C0E)).statusBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp)) {
-                SearchGrabber(searchOpen) { searchOpen = it }
-                Spacer(Modifier.height(8.dp))
-                SearchField(query, onScan = {
-                    val options = GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
-                    GmsBarcodeScanning.getClient(context, options).startScan()
-                        .addOnSuccessListener { barcode ->
-                            query = barcode.rawValue.orEmpty()
-                            scope.launch { hits = if (query.length < 2) emptyList() else runCatching { vm.search(query) }.getOrDefault(emptyList()) }
+        BoxWithConstraints(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
+            val progress = lift.value
+            val inset = 12.dp * (1f - progress)
+            val travel = with(LocalDensity.current) { maxHeight.toPx() }.coerceAtLeast(1f)
+            Box(
+                Modifier
+                    .padding(start = inset, end = inset, bottom = inset)
+                    .fillMaxWidth()
+                    .height(96.dp + (maxHeight - 96.dp) * progress)
+                    .clip(RoundedCornerShape(if (progress > 0.92f) 0.dp else 28.dp))
+                    .background(Color.Black.copy(alpha = 0.42f + 0.48f * progress))
+                    .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(if (progress > 0.92f) 0.dp else 28.dp)),
+            ) {
+                Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 4.dp)) {
+                    SearchGrabber(
+                        onDelta = { amount ->
+                            scope.launch { lift.snapTo((lift.value - amount / travel).coerceIn(0f, 1f)) }
+                        },
+                        onEnd = {
+                            scope.launch { lift.animateTo(if (lift.value > 0.32f) 1f else 0f, tween(460)) }
+                        },
+                        onTap = {
+                            scope.launch { lift.animateTo(if (lift.value > 0.5f) 0f else 1f, tween(460)) }
+                        },
+                    )
+                    if (progress > 0.55f) {
+                        SearchField(query, onScan = {
+                            val options = GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
+                            GmsBarcodeScanning.getClient(context, options).startScan()
+                                .addOnSuccessListener { barcode ->
+                                    query = barcode.rawValue.orEmpty()
+                                    scope.launch { hits = if (query.length < 2) emptyList() else runCatching { vm.search(query) }.getOrDefault(emptyList()) }
+                                }
+                        }) {
+                            query = it
+                            scope.launch { hits = if (it.trim().length < 2) emptyList() else runCatching { vm.search(it) }.getOrDefault(emptyList()) }
                         }
-                }) {
-                    query = it
-                    scope.launch { hits = if (it.trim().length < 2) emptyList() else runCatching { vm.search(it) }.getOrDefault(emptyList()) }
-                }
-                Spacer(Modifier.height(8.dp))
-                Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
-                    if (hits.isEmpty()) {
-                        Text(if (query.trim().length < 2) "Search a name or contract." else "No coins matched.", color = Color(0xFF8E8E93), modifier = Modifier.padding(top = 28.dp).fillMaxWidth(), fontSize = 14.sp)
-                    }
-                    hits.forEach { hit ->
-                        Row(
-                            Modifier.fillMaxWidth().clickable {
-                                vm.addWatched(hit)
-                                query = ""
-                                hits = emptyList()
-                                searchOpen = false
-                            }.padding(vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
+                    } else {
+                        Box(
+                            Modifier.fillMaxWidth().height(52.dp).clip(CircleShape).background(Color(0xFF3A3A3C)).clickable {
+                                scope.launch { lift.animateTo(1f, tween(460)) }
+                            },
+                            contentAlignment = Alignment.Center,
                         ) {
-                            Box(Modifier.size(44.dp).clip(CircleShape).background(Color.White), contentAlignment = Alignment.Center) {
-                                if (hit.image.isNotBlank()) {
-                                    AsyncImage(model = hit.image, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                                } else {
-                                    Text(hit.symbol.take(1), color = Color.Black)
+                            Icon(Icons.Outlined.Search, contentDescription = null, tint = Color.White, modifier = Modifier.align(Alignment.CenterStart).padding(start = 16.dp).size(20.dp))
+                            Text("SEARCH COINMARKETCAP", color = Color(0xFFC7C7CC), fontSize = 15.sp)
+                        }
+                    }
+                    if (progress > 0.08f) {
+                        Column(Modifier.fillMaxWidth().weight(1f).graphicsLayer { alpha = progress }.verticalScroll(rememberScrollState())) {
+                            if (hits.isEmpty()) {
+                                Text(if (query.trim().length < 2) "Search a name or contract." else "No coins matched.", color = Color(0xFF8E8E93), modifier = Modifier.padding(top = 28.dp), fontSize = 14.sp)
+                            }
+                            hits.forEach { hit ->
+                                Row(
+                                    Modifier.fillMaxWidth().clickable {
+                                        vm.addWatched(hit)
+                                        query = ""
+                                        hits = emptyList()
+                                        scope.launch { lift.animateTo(0f, tween(420)) }
+                                    }.padding(vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Box(Modifier.size(44.dp).clip(CircleShape).background(Color.White), contentAlignment = Alignment.Center) {
+                                        if (hit.image.isNotBlank()) AsyncImage(model = hit.image, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                                        else Text(hit.symbol.take(1), color = Color.Black)
+                                    }
+                                    Spacer(Modifier.width(12.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(hit.name, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(hit.symbol.uppercase(), color = sub, fontSize = 13.sp)
+                                    }
+                                    Text(spotLabel(hit.price, currency), color = Color.White)
                                 }
                             }
-                            Spacer(Modifier.width(12.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(hit.name, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(hit.symbol.uppercase() + if (hit.chain.isBlank()) "" else "  " + hit.chain, color = sub, fontSize = 13.sp, maxLines = 1)
-                            }
-                            Text(spotLabel(hit.price, currency), color = Color.White)
                         }
                     }
-                }
-            }
-        }
-        if (!searchOpen) {
-            Column(
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(start = 12.dp, end = 12.dp, bottom = 12.dp)
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(28.dp))
-                    .background(Color(0x99121214))
-                    .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(28.dp))
-                    .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 12.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                SearchGrabber(false) { searchOpen = it }
-                Box(
-                    Modifier.fillMaxWidth().height(52.dp).clip(CircleShape).background(Color(0xFF3A3A3C)).clickable { searchOpen = true },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(Icons.Outlined.Search, contentDescription = null, tint = Color.White, modifier = Modifier.align(Alignment.CenterStart).padding(start = 16.dp).size(20.dp))
-                    Text("SEARCH COINMARKETCAP", color = Color(0xFFC7C7CC), fontSize = 15.sp)
                 }
             }
         }
@@ -263,23 +278,16 @@ private fun TapePage(state: DeskState, vm: MoonViewModel) {
 private fun spotLabel(price: Double, currency: String) = if (price > 0 && price < 0.01) "<$0.01" else CompactMoney.format(price, currency)
 
 @Composable
-private fun SearchGrabber(open: Boolean, onChange: (Boolean) -> Unit) {
-    var pull by remember { mutableFloatStateOf(0f) }
+private fun SearchGrabber(onDelta: (Float) -> Unit, onEnd: () -> Unit, onTap: () -> Unit) {
     Box(
         Modifier
             .fillMaxWidth()
             .height(28.dp)
-            .pointerInput(open) {
-                detectTapGestures { onChange(!open) }
-            }
-            .pointerInput(open) {
+            .pointerInput(Unit) { detectTapGestures { onTap() } }
+            .pointerInput(Unit) {
                 detectVerticalDragGestures(
-                    onDragEnd = {
-                        if (pull < -24f) onChange(true)
-                        else if (pull > 24f) onChange(false)
-                        pull = 0f
-                    },
-                    onVerticalDrag = { _, amount -> pull += amount },
+                    onDragEnd = { onEnd() },
+                    onVerticalDrag = { _, amount -> onDelta(amount) },
                 )
             },
         contentAlignment = Alignment.Center,
