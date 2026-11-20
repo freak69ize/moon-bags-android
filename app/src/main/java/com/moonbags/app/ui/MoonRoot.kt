@@ -28,7 +28,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Spacer
@@ -275,7 +278,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel) {
     }
 }
 
-private fun spotLabel(price: Double, currency: String) = if (price > 0 && price < 0.01) "<$0.01" else CompactMoney.format(price, currency)
+private fun spotLabel(price: Double, currency: String) = CompactMoney.price(price, currency)
 
 @Composable
 private fun SearchGrabber(onDelta: (Float) -> Unit, onEnd: () -> Unit, onTap: () -> Unit) {
@@ -401,15 +404,7 @@ private fun MiniSpark(raw: String, up: Boolean, modifier: Modifier) {
     }
 }
 
-private fun tapePrice(price: Double, currency: String): String {
-    val symbol = when (currency.lowercase()) {
-        "eur" -> "€"
-        "gbp" -> "£"
-        "jpy" -> "¥"
-        else -> "$"
-    }
-    return if (price >= 1.0) symbol + String.format("%,.2f", price) else symbol + String.format("%.8f", price)
-}
+private fun tapePrice(price: Double, currency: String) = CompactMoney.price(price, currency)
 
 private fun parseHex(hex: String): Color = runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrDefault(Color(0xFF8E8E93))
 
@@ -441,8 +436,14 @@ private fun ThinSlider(label: String, value: Float, range: ClosedFloatingPointRa
                     val p = (x / size.width).coerceIn(0f, 1f)
                     onChange(range.start + p * (range.endInclusive - range.start))
                 }
-                detectTapGestures { apply(it.x) }
-                detectHorizontalDragGestures { change, _ -> apply(change.position.x) }
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    apply(down.position.x)
+                    drag(down.id) { change ->
+                        apply(change.position.x)
+                        change.consume()
+                    }
+                }
             },
         ) {
             Canvas(Modifier.fillMaxSize()) {
@@ -465,7 +466,7 @@ private fun QuoteRow(quote: QuoteEntity, currency: String, onRemove: () -> Unit)
             Text(quote.name, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Column(horizontalAlignment = Alignment.End) {
-            Text(CompactMoney.format(quote.price, currency))
+            Text(CompactMoney.price(quote.price, currency))
             Text(CompactMoney.percent(quote.change24h), color = if (quote.change24h >= 0) Up else Down)
             TextButton(onClick = onRemove) { Text("Remove") }
         }

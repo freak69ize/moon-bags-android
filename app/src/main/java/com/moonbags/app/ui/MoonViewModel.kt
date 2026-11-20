@@ -230,8 +230,24 @@ class MoonViewModel(app: Application) : AndroidViewModel(app) {
 
     fun updateWidgetConfig(config: WidgetConfigEntity) {
         viewModelScope.launch {
-            graph.db.widgets().upsert(config)
-            com.moonbags.app.widget.updateWidget(getApplication(), config.kind, config.appWidgetId)
+            val all = graph.db.widgets().observe().first()
+            val styled = if (all.isEmpty()) listOf(config) else all.map { other ->
+                other.copy(
+                    backgroundPath = config.backgroundPath,
+                    scrim = config.scrim,
+                    alpha = config.alpha,
+                    acrylic = config.acrylic,
+                    acrylicHue = config.acrylicHue,
+                    acrylicSat = config.acrylicSat,
+                    acrylicLight = config.acrylicLight,
+                    coinId = if (other.appWidgetId == config.appWidgetId) config.coinId else other.coinId,
+                    showPrice = if (other.appWidgetId == config.appWidgetId) config.showPrice else other.showPrice,
+                    hidden = if (other.appWidgetId == config.appWidgetId) config.hidden else other.hidden,
+                    kind = if (other.appWidgetId == config.appWidgetId) config.kind else other.kind,
+                )
+            }
+            styled.forEach { graph.db.widgets().upsert(it) }
+            com.moonbags.app.widget.updateAllWidgets(getApplication())
         }
     }
 

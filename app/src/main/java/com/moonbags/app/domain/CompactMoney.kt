@@ -33,6 +33,30 @@ object CompactMoney {
         return sign + symbol + trim(String.format(Locale.US, "%.${digits}f", scaled)) + unit.second
     }
 
+    /** Spot prices: at least 4 decimals, 6–8 under one cent. */
+    fun price(value: Double, currency: String): String {
+        if (value.isNaN() || value.isInfinite()) return "—"
+        val symbol = symbol(currency)
+        val sign = if (value < 0) "-" else ""
+        val abs = kotlin.math.abs(value)
+        if (abs == 0.0) return symbol + "0.0000"
+        if (abs >= 0.01) return sign + symbol + String.format(Locale.US, "%,.4f", abs)
+        val places = kotlin.math.min(8, kotlin.math.max(6, kotlin.math.ceil(-kotlin.math.log10(abs)).toInt() + 2))
+        return sign + symbol + String.format(Locale.US, "%.${places}f", abs)
+    }
+
+    /** Global cap like the CoinMarketCap app: $2.13T. */
+    fun cap(value: Double, currency: String): String {
+        if (value.isNaN() || value <= 0) return "—"
+        val symbol = symbol(currency)
+        val abs = kotlin.math.abs(value)
+        return when {
+            abs >= 1_000_000_000_000.0 -> symbol + String.format(Locale.US, "%.2fT", abs / 1_000_000_000_000.0)
+            abs >= 1_000_000_000.0 -> symbol + String.format(Locale.US, "%.2fB", abs / 1_000_000_000.0)
+            else -> format(value, currency)
+        }
+    }
+
     fun percent(value: Double): String {
         if (value.isNaN()) return "—"
         val sign = if (value > 0) "+" else ""

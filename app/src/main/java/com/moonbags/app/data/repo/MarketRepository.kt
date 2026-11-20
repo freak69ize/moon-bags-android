@@ -20,6 +20,8 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Request
+import org.json.JSONObject
+import okhttp3.Request
 
 class MarketRepository(
     private val db: MoonDatabase,
@@ -103,13 +105,14 @@ class MarketRepository(
         val fiat = currency.lowercase()
         val geckoIds = (watchIds.filter { !it.startsWith("cmc-") && !it.startsWith("dex") } + AssetIds.bySymbol.values).distinct()
         val ids = geckoIds.joinToString(",")
-        val global = HttpClients.gecko.global().data
+        val gecko = runCatching { HttpClients.gecko.global().data }.getOrNull()
+        val cmc = cmcGlobal()
         db.market().upsertGlobal(
             GlobalEntity(
                 currency = fiat,
-                marketCap = global.totalMarketCap[fiat] ?: global.totalMarketCap["usd"] ?: 0.0,
-                volume = global.totalVolume[fiat] ?: global.totalVolume["usd"] ?: 0.0,
-                change24h = global.change24h,
+                marketCap = cmc?.first ?: gecko?.totalMarketCap?.get(fiat) ?: gecko?.totalMarketCap?.get("usd") ?: 0.0,
+                volume = cmc?.second ?: gecko?.totalVolume?.get(fiat) ?: gecko?.totalVolume?.get("usd") ?: 0.0,
+                change24h = cmc?.third ?: gecko?.change24h ?: 0.0,
                 updatedAt = System.currentTimeMillis(),
             ),
         )
@@ -285,6 +288,20 @@ class MarketRepository(
         val step = (prices.size / 36).coerceAtLeast(1)
         return prices.filterIndexed { index, _ -> index % step == 0 }.joinToString(",")
     }
+
+    private fun cmcGlobal(): Triple<Double, Double, Double>? = runCatching {
+        val body = cmc("https://api.coinmarketcap.com/data-api/v3/global-metrics/quotes/latest")
+        val quotes = JSONObject(body).getJSONObject("data").getJSONArray("quotes")
+        var usd: JSONObject? = null
+        for (index in 0 until quotes.length()) {
+            val row = quotes.getJSONObject(index)
+            if (row.optString("name") == "USD") usd = row
+        }
+        val row = usd ?: return null
+        val cap = row.optDouble("totalMarketCap")
+        if (cap <= 0.0) return null
+        Triple(cap, row.optDouble("totalVolume24H"), row.optDouble("totalMarketCapYesterdayPercentageChange"))
+    }.getOrNull()
 
     private fun cmc(url: String): String {
         val request = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").header("Accept", "application/json").get().build()

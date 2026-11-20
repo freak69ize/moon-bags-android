@@ -155,7 +155,7 @@ fun render(
     fun money(value: Double) = if (hidden) "••••" else CompactMoney.format(value, currency)
     return when (config.kind) {
         WidgetKinds.TILE -> WidgetSnap(
-            primary = if (config.showPrice && !config.coinId.startsWith("cmc-")) money(coin?.price ?: 0.0) else money(coin?.marketCap ?: 0.0),
+            primary = if (config.showPrice && !config.coinId.startsWith("cmc-")) CompactMoney.price(coin?.price ?: 0.0, currency) else money(coin?.marketCap ?: 0.0),
             secondary = coin?.symbol ?: "",
             up = (coin?.change24h ?: 0.0) >= 0,
             title = if (config.coinId.startsWith("cmc-")) coin?.name ?: "Meme" else coin?.symbol ?: "COIN",
@@ -166,7 +166,7 @@ fun render(
             hidden = hidden,
         )
         WidgetKinds.PILL, WidgetKinds.SPARK -> WidgetSnap(
-            primary = money(coin?.price ?: 0.0),
+            primary = CompactMoney.price(coin?.price ?: 0.0, currency),
             secondary = CompactMoney.percent(coin?.change24h ?: 0.0),
             up = (coin?.change24h ?: 0.0) >= 0,
             title = coin?.symbol ?: "COIN",
@@ -181,7 +181,7 @@ fun render(
             secondary = "",
             up = true,
             title = "Watchlist",
-            lines = quotes.take(8).map { it.symbol to CompactMoney.format(it.price, currency) },
+            lines = quotes.take(8).map { it.symbol to CompactMoney.price(it.price, currency) },
             spark = emptyList(),
             background = background,
             scrim = config.scrim,
@@ -205,7 +205,7 @@ fun render(
             )
         }
         else -> WidgetSnap(
-            primary = CompactMoney.format(global?.marketCap ?: 0.0, currency),
+            primary = CompactMoney.cap(global?.marketCap ?: 0.0, currency),
             secondary = CompactMoney.percent(global?.change24h ?: 0.0),
             up = (global?.change24h ?: 0.0) >= 0,
             title = "Total market cap",

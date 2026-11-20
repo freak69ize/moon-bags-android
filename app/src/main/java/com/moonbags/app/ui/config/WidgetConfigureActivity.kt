@@ -86,7 +86,7 @@ private fun ConfigureForm(appWidgetId: Int, kind: String, onDone: (Boolean) -> U
         Text("Place widget", style = MaterialTheme.typography.headlineMedium)
         Text(kindLabel(kind), color = MaterialTheme.colorScheme.primary)
         Text(
-            if (kind == WidgetKinds.MCAP) "Total market cap" else CompactMoney.format(coin?.price ?: 0.0, "usd"),
+            if (kind == WidgetKinds.MCAP) "Total market cap" else CompactMoney.price(coin?.price ?: 0.0, "usd"),
             style = MaterialTheme.typography.displaySmall,
         )
         if (kind != WidgetKinds.MCAP && kind != WidgetKinds.BOOK && kind != WidgetKinds.WATCH) {
