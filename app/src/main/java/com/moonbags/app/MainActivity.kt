@@ -5,7 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.activity.viewModels
 import coil.ImageLoader
 import coil.compose.LocalImageLoader
 import coil.decode.ImageDecoderDecoder
@@ -16,12 +16,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 
 class MainActivity : ComponentActivity() {
+    private val vm: MoonViewModel by viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            val vm: MoonViewModel = viewModel()
             val context = LocalContext.current
             val loader = remember {
                 ImageLoader.Builder(context)
@@ -32,5 +33,15 @@ class MainActivity : ComponentActivity() {
                 MoonRoot(vm)
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        vm.onForeground()
+    }
+
+    override fun onStop() {
+        vm.onBackground()
+        super.onStop()
     }
 }

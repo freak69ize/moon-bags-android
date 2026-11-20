@@ -335,6 +335,17 @@ private fun SearchField(value: String, onScan: (() -> Unit)?, onChange: (String)
 @Composable
 private fun WatchedRow(quote: QuoteEntity, currency: String, sub: Color, onRemove: () -> Unit) {
     var drag by remember(quote.coinId) { mutableFloatStateOf(0f) }
+    var previous by remember(quote.coinId) { mutableStateOf<Double?>(null) }
+    var flash by remember(quote.coinId) { mutableStateOf(Color.Transparent) }
+    LaunchedEffect(quote.price) {
+        val last = previous
+        previous = quote.price
+        if (last != null && last != quote.price) {
+            flash = if (quote.price >= last) Color(0x663DDC84) else Color(0x66FF6B81)
+            kotlinx.coroutines.delay(450)
+            flash = Color.Transparent
+        }
+    }
     val up = quote.change24h >= 0
     Box(Modifier.fillMaxWidth()) {
         Box(
@@ -352,7 +363,7 @@ private fun WatchedRow(quote: QuoteEntity, currency: String, sub: Color, onRemov
                 .fillMaxWidth()
                 .offset { androidx.compose.ui.unit.IntOffset(drag.roundToInt(), 0) }
                 .clip(RoundedCornerShape(22.dp))
-                .background(Color(0xFF141414))
+                .background(if (flash == Color.Transparent) Color(0xFF141414) else flash)
                 .padding(horizontal = 12.dp, vertical = 12.dp)
                 .pointerInput(quote.coinId) {
                     detectHorizontalDragGestures(

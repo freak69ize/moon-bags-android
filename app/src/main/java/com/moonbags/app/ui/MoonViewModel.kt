@@ -10,6 +10,9 @@ import com.moonbags.app.data.local.QuoteEntity
 import com.moonbags.app.data.local.WidgetConfigEntity
 import com.moonbags.app.data.remote.SearchCoinDto
 import com.moonbags.app.data.settings.UserSettings
+import com.moonbags.app.data.remote.LiveTicker
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import com.moonbags.app.widget.updateAllWidgets
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -17,6 +20,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 data class DeskState(
@@ -30,19 +34,33 @@ data class DeskState(
     val widgets: List<WidgetConfigEntity> = emptyList(),
 )
 
+private data class LiveTick(val price: Double, val open: Double, val change: Double, val spark: List<Double>)
+
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class MoonViewModel(app: Application) : AndroidViewModel(app) {
     private val graph = (app as MoonBagsApp).graph
     private val refreshing = MutableStateFlow(false)
     private val error = MutableStateFlow<String?>(null)
     private val notice = MutableStateFlow<String?>(null)
+    private val ticks = MutableStateFlow<Map<String, LiveTick>>(emptyMap())
+    private val ticker = LiveTicker()
+    private var flushJob: Job? = null
 
     val state = combine(graph.settings.flow, refreshing, error, notice) { settings, busy, err, note ->
         Quad(settings, busy, err, note)
     }.flatMapLatest { quad ->
         combine(
             graph.db.market().observeGlobal(quad.settings.currency),
-            graph.db.market().observeQuotes(),
+            combine(graph.db.market().observeQuotes(), ticks) { quotes, live ->
+                quotes.map { quote ->
+                    val tick = live[quote.symbol.uppercase()] ?: return@map quote
+                    quote.copy(
+                        price = tick.price,
+                        change24h = tick.change,
+                        sparkline = if (tick.spark.size > 1) tick.spark.joinToString(",") else quote.sparkline,
+                    )
+                }
+            },
             graph.db.holdings().observe(),
             graph.db.widgets().observe(),
         ) { global, quotes, holdings, widgets ->
@@ -60,7 +78,57 @@ class MoonViewModel(app: Application) : AndroidViewModel(app) {
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DeskState())
 
     init {
+        viewModelScope.launch {
+            graph.db.market().observeQuotes().collect { rows ->
+                ticker.symbols = rows.map { it.symbol.uppercase() }.toSet()
+            }
+        }
+    }
+
+    fun onForeground() {
+        startTicks()
         refresh()
+    }
+
+    fun onBackground() {
+        viewModelScope.launch {
+            flushTicks()
+            updateAllWidgets(getApplication())
+            ticker.stop()
+            flushJob?.cancel()
+        }
+    }
+
+    private fun startTicks() {
+        ticker.start { symbol, price, open ->
+            val current = ticks.value[symbol]
+            val spark = ((current?.spark ?: emptyList()) + price).takeLast(48)
+            val change = if (open > 0) ((price - open) / open) * 100 else current?.change ?: 0.0
+            ticks.value = ticks.value + (symbol to LiveTick(price, open, change, spark))
+        }
+        if (flushJob?.isActive == true) return
+        flushJob = viewModelScope.launch {
+            while (isActive) {
+                delay(60_000)
+                flushTicks()
+            }
+        }
+    }
+
+    private suspend fun flushTicks() {
+        val live = ticks.value
+        if (live.isEmpty()) return
+        val rows = graph.db.market().observeQuotes().first()
+        val next = rows.mapNotNull { quote ->
+            val tick = live[quote.symbol.uppercase()] ?: return@mapNotNull null
+            quote.copy(
+                price = tick.price,
+                change24h = tick.change,
+                sparkline = if (tick.spark.size > 1) tick.spark.joinToString(",") else quote.sparkline,
+                updatedAt = System.currentTimeMillis(),
+            )
+        }
+        if (next.isNotEmpty()) graph.db.market().upsertQuotes(next)
     }
 
     fun refresh() {
