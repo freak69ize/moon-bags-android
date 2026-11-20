@@ -21,7 +21,6 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Request
 import org.json.JSONObject
-import okhttp3.Request
 
 class MarketRepository(
     private val db: MoonDatabase,
