@@ -5,6 +5,8 @@
         <item name="android:navigationBarColor">@color/ink</item>
         <item name="android:windowBackground">@color/ink</item>
         <item name="android:colorBackground">@color/ink</item>
+        <item name="android:colorControlHighlight">@android:color/transparent</item>
+        <item name="android:colorActivatedHighlight">@android:color/transparent</item>
     </style>
 
     <style name="Theme.MoonBags.Splash" parent="Theme.SplashScreen">

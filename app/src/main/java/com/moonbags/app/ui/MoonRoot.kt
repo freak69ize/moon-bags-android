@@ -435,16 +435,13 @@ private fun tapePrice(price: Double, currency: String) = CompactMoney.price(pric
 private fun parseHex(hex: String): Color = runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrDefault(Color(0xFF8E8E93))
 
 private val BasicColors = listOf(
+    "#000000",
     "#E23D3D",
-    "#F08A2A",
-    "#F2C14E",
-    "#7CDB4A",
-    "#3DDC84",
-    "#2EC4B6",
     "#3AA0FF",
-    "#5B6CFF",
     "#A56BFF",
-    "#E45AD2",
+    "#F472B6",
+    "#3DDC84",
+    "#F08A2A",
 )
 
 @Composable
@@ -452,25 +449,17 @@ private fun ToneControl(label: String, hex: String, onChange: (String) -> Unit) 
     val color = parseHex(hex)
     val hsv = FloatArray(3).also { android.graphics.Color.colorToHSV(color.toArgb(), it) }
     fun lighter(step: Float): String {
-        val packed = android.graphics.Color.HSVToColor(floatArrayOf(hsv[0], hsv[1].coerceAtLeast(0.35f), (hsv[2] + step).coerceIn(0.08f, 0.94f)))
+        val packed = android.graphics.Color.HSVToColor(floatArrayOf(hsv[0], hsv[1], (hsv[2] + step).coerceIn(0.02f, 0.96f)))
         return String.format("#%06X", 0xFFFFFF and packed)
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(label, color = Color.White)
-        Box(Modifier.size(176.dp).align(Alignment.CenterHorizontally), contentAlignment = Alignment.Center) {
-            Box(Modifier.size(46.dp).clip(CircleShape).background(color).border(2.dp, Color.White.copy(alpha = 0.7f), CircleShape))
-            BasicColors.forEachIndexed { index, swatch ->
-                val angle = index * (2.0 * Math.PI / BasicColors.size) - Math.PI / 2.0
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(28.dp).clip(CircleShape).background(color).border(2.dp, Color.White.copy(alpha = 0.7f), CircleShape))
+            BasicColors.forEach { swatch ->
                 Box(
                     Modifier
-                        .offset {
-                            val radius = 64.dp.toPx()
-                            androidx.compose.ui.unit.IntOffset(
-                                (kotlin.math.cos(angle) * radius).roundToInt(),
-                                (kotlin.math.sin(angle) * radius).roundToInt(),
-                            )
-                        }
-                        .size(26.dp)
+                        .size(28.dp)
                         .clip(CircleShape)
                         .background(parseHex(swatch))
                         .border(1.dp, Color.White.copy(alpha = 0.35f), CircleShape)
@@ -539,8 +528,8 @@ private fun StudioPage(state: DeskState, vm: MoonViewModel) {
     val settings = state.settings
     val slider = parseHex(settings.sliderColor)
     val sub = parseHex(settings.subtextColor)
-    ThinSlider("Transparency", (1f - settings.widgetAlpha) * 100f, 0f..85f, slider, sub) { value ->
-        val alpha = (1f - value / 100f).coerceIn(0.15f, 1f)
+    ThinSlider("Transparency", (1f - settings.widgetAlpha) * 100f, 0f..100f, slider, sub) { value ->
+        val alpha = (1f - value / 100f).coerceIn(0f, 1f)
         vm.patch { it.copy(widgetAlpha = alpha) }
         state.widgets.firstOrNull()?.let { vm.updateWidgetConfig(it.copy(alpha = alpha)) }
     }
@@ -558,8 +547,12 @@ private fun StudioPage(state: DeskState, vm: MoonViewModel) {
         Box(
             Modifier
                 .fillMaxWidth()
+                .clip(RoundedCornerShape(state.settings.radiusDp.dp))
                 .border(1.dp, parseHex(settings.widgetBorder), RoundedCornerShape(state.settings.radiusDp.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = settings.widgetAlpha), RoundedCornerShape(state.settings.radiusDp.dp))
+                .background(
+                    if (config.backgroundPath.isNullOrBlank()) parseHex(settings.widgetBorder).copy(alpha = settings.widgetAlpha) else Color.Transparent,
+                    RoundedCornerShape(state.settings.radiusDp.dp),
+                )
                 .padding(16.dp),
         ) {
             if (!config.backgroundPath.isNullOrBlank()) {
@@ -570,7 +563,7 @@ private fun StudioPage(state: DeskState, vm: MoonViewModel) {
                     contentScale = ContentScale.Crop,
                     alpha = settings.widgetAlpha,
                 )
-                Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = config.scrim * config.alpha)))
+                Box(Modifier.matchParentSize().background(parseHex(settings.widgetBorder).copy(alpha = 0.45f * settings.widgetAlpha)))
             }
             Column {
                 Text(snap.title, color = Brass)
@@ -790,8 +783,8 @@ private fun SettingsPage(state: DeskState, vm: MoonViewModel, menu: String, onMe
                 vm.patch { it.copy(pillBorderAlpha = (value / 100f).coerceIn(0f, 0.8f)) }
             }
             ToneControl("Widget outline", settings.widgetBorder) { value -> vm.patch { it.copy(widgetBorder = value) } }
-            ThinSlider("Widget transparency", (1f - settings.widgetAlpha) * 100f, 0f..85f, slider, sub) { value ->
-                val alpha = (1f - value / 100f).coerceIn(0.15f, 1f)
+            ThinSlider("Widget transparency", (1f - settings.widgetAlpha) * 100f, 0f..100f, slider, sub) { value ->
+                val alpha = (1f - value / 100f).coerceIn(0f, 1f)
                 vm.patch { it.copy(widgetAlpha = alpha) }
                 state.widgets.firstOrNull()?.let { vm.updateWidgetConfig(it.copy(alpha = alpha)) }
             }

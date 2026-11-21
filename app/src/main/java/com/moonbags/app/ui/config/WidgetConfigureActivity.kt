@@ -104,7 +104,7 @@ private fun ConfigureForm(appWidgetId: Int, kind: String, onDone: (Boolean) -> U
         }
         Text("Transparency", style = MaterialTheme.typography.titleMedium)
         Text("How see-through the widget is, including a background picture. ${((1f - alpha) * 100).toInt()}%")
-        Slider(value = 1f - alpha, onValueChange = { alpha = (1f - it).coerceIn(0.05f, 1f) }, valueRange = 0f..0.95f)
+        Slider(value = 1f - alpha, onValueChange = { alpha = (1f - it).coerceIn(0f, 1f) }, valueRange = 0f..1f)
         Text("Scrim ${(scrim * 100).toInt()}%")
         Slider(value = scrim, onValueChange = { scrim = it }, valueRange = 0f..0.9f)
         OutlinedButton(onClick = { picker.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly)) }, modifier = Modifier.fillMaxWidth()) {

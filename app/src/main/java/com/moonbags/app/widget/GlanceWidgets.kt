@@ -38,6 +38,7 @@ import androidx.glance.layout.Column
 import androidx.glance.layout.ColumnScope
 import androidx.glance.layout.ContentScale
 import androidx.glance.layout.Row
+import androidx.glance.layout.defaultWeight
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
@@ -129,8 +130,9 @@ object WidgetSnapshots {
         val global = graph.db.market().global(settings.currency)
         val quotes = graph.db.market().quotes().filter { it.currency == settings.currency }
         val holdings = graph.db.holdings().all()
-        val raw = graph.media.decodeForWidget(config.backgroundPath, 360)
-        val background = fadeBitmap(raw, settings.widgetAlpha)
+        val raw = graph.media.decodeForWidget(config.backgroundPath, 640)
+        val tint = runCatching { android.graphics.Color.parseColor(settings.widgetBorder) }.getOrDefault(0xFF3A3842.toInt())
+        val background = widgetPlate(raw, tint, settings.widgetAlpha)
         return render(config, settings.currency, settings.hideBalances, global, quotes, holdings, background)
             .copy(
                 alpha = settings.widgetAlpha,
@@ -230,13 +232,46 @@ private fun parseSpark(raw: String?): List<Double> {
     return all.filterIndexed { index, _ -> index % step == 0 }
 }
 
-fun fadeBitmap(source: Bitmap?, alpha: Float): Bitmap? {
-    if (source == null) return null
-    val faded = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
-    val canvas = Canvas(faded)
-    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.alpha = (alpha.coerceIn(0.05f, 1f) * 255).toInt() }
-    canvas.drawBitmap(source, 0f, 0f, paint)
-    return faded
+fun widgetPlate(image: Bitmap?, tint: Int, alpha: Float): Bitmap {
+    val width = 640
+    val height = 360
+    val out = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(out)
+    val radius = 56f
+    val bounds = android.graphics.RectF(2f, 2f, width - 2f, height - 2f)
+    val clip = Path().apply { addRoundRect(bounds, radius, radius, Path.Direction.CW) }
+    val strength = alpha.coerceIn(0f, 1f)
+    canvas.save()
+    canvas.clipPath(clip)
+    if (image != null) {
+        val scale = maxOf(width / image.width.toFloat(), height / image.height.toFloat())
+        val drawnWidth = image.width * scale
+        val drawnHeight = image.height * scale
+        val left = (width - drawnWidth) / 2f
+        val top = (height - drawnHeight) / 2f
+        canvas.drawBitmap(
+            image,
+            null,
+            android.graphics.RectF(left, top, left + drawnWidth, top + drawnHeight),
+            Paint(Paint.ANTI_ALIAS_FLAG).apply { this.alpha = (strength * 255).toInt() },
+        )
+        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), Paint().apply {
+            color = tint
+            this.alpha = (strength * 0.5f * 255).toInt()
+        })
+    } else {
+        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = tint
+            this.alpha = (strength * 255).toInt()
+        })
+    }
+    canvas.restore()
+    canvas.drawRoundRect(bounds, radius, radius, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+        color = tint
+    })
+    return out
 }
 
 fun sparkBitmap(values: List<Double>, up: Boolean): Bitmap {
@@ -276,26 +311,16 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = 
             actionStartActivity(intent)
         }
     }
-    val veil = Color(0xFF3A3842).copy(alpha = snap.alpha.coerceIn(0.15f, 0.92f))
-    Box(modifier = GlanceModifier.fillMaxSize().cornerRadius(28.dp).background(ColorProvider(snap.border))) {
-        Box(modifier = GlanceModifier.fillMaxSize().padding(1.dp).cornerRadius(27.dp)) {
+    Box(modifier = GlanceModifier.fillMaxSize()) {
         if (snap.background != null) {
             Image(
                 provider = ImageProvider(snap.background),
                 contentDescription = null,
                 modifier = GlanceModifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
+                contentScale = ContentScale.FillBounds,
             )
-        } else if (snap.acrylic) {
-            Box(
-                modifier = GlanceModifier.fillMaxSize().background(
-                    ColorProvider(Color.hsl(snap.acrylicHue, snap.acrylicSat.coerceIn(0f, 1f), snap.acrylicLight.coerceIn(0f, 1f)).copy(alpha = (0.72f * snap.alpha).coerceIn(0.2f, 0.9f))),
-                ),
-            ) {}
-        } else {
-            Box(modifier = GlanceModifier.fillMaxSize().background(ColorProvider(veil))) {}
         }
-        Column(modifier = GlanceModifier.fillMaxSize().padding(10.dp)) {
+        Column(modifier = GlanceModifier.fillMaxSize().padding(10.dp).background(ColorProvider(Color.Transparent))) {
             if (showTitle) {
             Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 if (snap.title.isNotBlank()) {
@@ -320,7 +345,6 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = 
             }
             OpenBody(open, body)
         }
-        }
     }
 }
 
@@ -330,7 +354,7 @@ private fun ColumnScope.OpenBody(open: Action?, body: @Composable ColumnScope.()
     if (open == null) {
         Column(modifier) { body() }
     } else {
-        Column(modifier.clickable(open)) { body() }
+        Column(modifier.clickable(open).background(ColorProvider(Color.Transparent))) { body() }
     }
 }
 

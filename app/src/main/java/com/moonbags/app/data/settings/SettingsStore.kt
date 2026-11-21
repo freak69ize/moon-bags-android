@@ -95,6 +95,11 @@ class SettingsStore(private val context: Context) {
                     subtextColor = prefs[Keys.subtextColor] ?: "#8E8E93",
                     widgetAlpha = prefs[Keys.widgetAlpha] ?: 0.58f,
                     widgetBorder = prefs[Keys.widgetBorder] ?: "#D0BCFF",
+                    cardColor = prefs[Keys.cardColor] ?: "#3A3842",
+                    searchPillColor = prefs[Keys.searchPillColor] ?: "#242426",
+                    searchBarColor = prefs[Keys.searchBarColor] ?: "#000000",
+                    searchBarAlpha = prefs[Keys.searchBarAlpha] ?: 0.72f,
+                    pillBorderAlpha = prefs[Keys.pillBorderAlpha] ?: 0.28f,
                 ),
             )
             prefs[Keys.currency] = next.currency
