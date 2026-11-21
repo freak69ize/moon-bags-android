@@ -52,7 +52,7 @@ class WidgetConfigureActivity : ComponentActivity() {
         val provider = AppWidgetManager.getInstance(this).getAppWidgetInfo(appWidgetId)?.provider?.className.orEmpty()
         val kind = WidgetKinds.fromProvider(provider)
         setContent {
-            MoonTheme(theme = "ink", materialYou = false) {
+            MoonTheme(theme = "ink") {
                 ConfigureForm(appWidgetId, kind) { saved ->
                     if (saved) {
                         setResult(RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId))
@@ -102,8 +102,9 @@ private fun ConfigureForm(appWidgetId: Int, kind: String, onDone: (Boolean) -> U
                 Switch(checked = showPrice, onCheckedChange = { showPrice = it })
             }
         }
-        Text("Transparency ${((1f - alpha) * 100).toInt()}%")
-        Slider(value = 1f - alpha, onValueChange = { alpha = (1f - it).coerceIn(0.15f, 1f) }, valueRange = 0f..0.85f)
+        Text("Transparency", style = MaterialTheme.typography.titleMedium)
+        Text("How see-through the widget is, including a background picture. ${((1f - alpha) * 100).toInt()}%")
+        Slider(value = 1f - alpha, onValueChange = { alpha = (1f - it).coerceIn(0.05f, 1f) }, valueRange = 0f..0.95f)
         Text("Scrim ${(scrim * 100).toInt()}%")
         Slider(value = scrim, onValueChange = { scrim = it }, valueRange = 0f..0.9f)
         OutlinedButton(onClick = { picker.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly)) }, modifier = Modifier.fillMaxWidth()) {

@@ -33,6 +33,11 @@ data class UserSettings(
     val subtextColor: String = "#8E8E93",
     val widgetAlpha: Float = 0.58f,
     val widgetBorder: String = "#D0BCFF",
+    val cardColor: String = "#3A3842",
+    val searchPillColor: String = "#242426",
+    val searchBarColor: String = "#000000",
+    val searchBarAlpha: Float = 0.72f,
+    val pillBorderAlpha: Float = 0.28f,
 )
 
 class SettingsStore(private val context: Context) {
@@ -58,6 +63,11 @@ class SettingsStore(private val context: Context) {
             subtextColor = prefs[Keys.subtextColor] ?: "#8E8E93",
             widgetAlpha = prefs[Keys.widgetAlpha] ?: 0.58f,
             widgetBorder = prefs[Keys.widgetBorder] ?: "#D0BCFF",
+            cardColor = prefs[Keys.cardColor] ?: "#3A3842",
+            searchPillColor = prefs[Keys.searchPillColor] ?: "#242426",
+            searchBarColor = prefs[Keys.searchBarColor] ?: "#000000",
+            searchBarAlpha = prefs[Keys.searchBarAlpha] ?: 0.72f,
+            pillBorderAlpha = prefs[Keys.pillBorderAlpha] ?: 0.28f,
         )
     }
 
@@ -107,6 +117,11 @@ class SettingsStore(private val context: Context) {
             prefs[Keys.subtextColor] = next.subtextColor
             prefs[Keys.widgetAlpha] = next.widgetAlpha
             prefs[Keys.widgetBorder] = next.widgetBorder
+            prefs[Keys.cardColor] = next.cardColor
+            prefs[Keys.searchPillColor] = next.searchPillColor
+            prefs[Keys.searchBarColor] = next.searchBarColor
+            prefs[Keys.searchBarAlpha] = next.searchBarAlpha
+            prefs[Keys.pillBorderAlpha] = next.pillBorderAlpha
         }
     }
 
@@ -131,5 +146,10 @@ class SettingsStore(private val context: Context) {
         val subtextColor = stringPreferencesKey("subtext_color")
         val widgetAlpha = floatPreferencesKey("widget_alpha")
         val widgetBorder = stringPreferencesKey("widget_border")
+        val cardColor = stringPreferencesKey("card_color")
+        val searchPillColor = stringPreferencesKey("search_pill_color")
+        val searchBarColor = stringPreferencesKey("search_bar_color")
+        val searchBarAlpha = floatPreferencesKey("search_bar_alpha")
+        val pillBorderAlpha = floatPreferencesKey("pill_border_alpha")
     }
 }

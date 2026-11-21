@@ -129,7 +129,8 @@ object WidgetSnapshots {
         val global = graph.db.market().global(settings.currency)
         val quotes = graph.db.market().quotes().filter { it.currency == settings.currency }
         val holdings = graph.db.holdings().all()
-        val background = graph.media.decodeForWidget(config.backgroundPath, 360)
+        val raw = graph.media.decodeForWidget(config.backgroundPath, 360)
+        val background = fadeBitmap(raw, settings.widgetAlpha)
         return render(config, settings.currency, settings.hideBalances, global, quotes, holdings, background)
             .copy(
                 alpha = settings.widgetAlpha,
@@ -233,7 +234,7 @@ fun fadeBitmap(source: Bitmap?, alpha: Float): Bitmap? {
     if (source == null) return null
     val faded = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(faded)
-    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.alpha = (alpha.coerceIn(0.15f, 1f) * 255).toInt() }
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.alpha = (alpha.coerceIn(0.05f, 1f) * 255).toInt() }
     canvas.drawBitmap(source, 0f, 0f, paint)
     return faded
 }
@@ -285,11 +286,6 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = 
                 modifier = GlanceModifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
             )
-            if (snap.scrim > 0.02f) {
-                Box(
-                    modifier = GlanceModifier.fillMaxSize().background(ColorProvider(Color.Black.copy(alpha = snap.scrim.coerceIn(0f, 0.9f)))),
-                ) {}
-            }
         } else if (snap.acrylic) {
             Box(
                 modifier = GlanceModifier.fillMaxSize().background(

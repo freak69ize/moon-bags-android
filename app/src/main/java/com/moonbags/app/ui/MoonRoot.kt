@@ -114,7 +114,7 @@ private val SheetEase = androidx.compose.animation.core.CubicBezierEasing(0.22f,
 fun MoonRoot(vm: MoonViewModel) {
     val state by vm.state.collectAsStateWithLifecycle()
     var splash by remember { mutableStateOf(true) }
-    MoonTheme(state.settings.theme, state.settings.materialYou) {
+    MoonTheme(state.settings.theme) {
         if (splash) {
             LaunchSplash(state.settings.splashPath) { splash = false }
             LaunchedEffect(Unit) {
@@ -203,7 +203,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
             Column(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 val rows = state.quotes.filter { it.coinId in watch }
                 if (rows.isEmpty()) {
-                    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(CardFace).padding(vertical = 64.dp), contentAlignment = Alignment.Center) {
+                    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(parseHex(state.settings.cardColor)).padding(vertical = 64.dp), contentAlignment = Alignment.Center) {
                         Text(if (state.refreshing) "Pulling prices…" else "Search a name or contract to add a coin.", color = sub, fontSize = 14.sp)
                     }
                 }
@@ -224,8 +224,8 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
                     .fillMaxWidth()
                     .height(96.dp + (maxHeight - 96.dp) * progress)
                     .clip(RoundedCornerShape(if (progress > 0.92f) 0.dp else 28.dp))
-                    .background(Color.Black.copy(alpha = 0.42f + 0.48f * progress))
-                    .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(if (progress > 0.92f) 0.dp else 28.dp)),
+                    .background(parseHex(state.settings.searchBarColor).copy(alpha = state.settings.searchBarAlpha.coerceIn(0.15f, 1f)))
+                    .border(1.dp, Color.White.copy(alpha = state.settings.pillBorderAlpha.coerceIn(0f, 1f)), RoundedCornerShape(if (progress > 0.92f) 0.dp else 28.dp)),
             ) {
                 Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 4.dp)) {
                     SearchGrabber(
@@ -240,7 +240,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
                         },
                     )
                     if (progress > 0.55f) {
-                        SearchField(query, onScan = {
+                        SearchField(query, parseHex(state.settings.searchPillColor), state.settings.pillBorderAlpha, onScan = {
                             val options = GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
                             GmsBarcodeScanning.getClient(context, options).startScan()
                                 .addOnSuccessListener { barcode ->
@@ -253,7 +253,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
                         }
                     } else {
                         Box(
-                            Modifier.fillMaxWidth().height(52.dp).clip(CircleShape).background(Color(0xFF242426)).clickable {
+                            Modifier.fillMaxWidth().height(52.dp).clip(CircleShape).background(parseHex(state.settings.searchPillColor)).border(1.dp, Color.White.copy(alpha = state.settings.pillBorderAlpha), CircleShape).clickable {
                                 scope.launch { lift.animateTo(1f, tween(460, easing = SheetEase)) }
                             },
                             contentAlignment = Alignment.Center,
@@ -324,14 +324,15 @@ private fun SearchGrabber(onDelta: (Float) -> Unit, onEnd: () -> Unit, onTap: ()
 }
 
 @Composable
-private fun SearchField(value: String, onScan: (() -> Unit)?, onChange: (String) -> Unit) {
+private fun SearchField(value: String, pill: Color, borderAlpha: Float, onScan: (() -> Unit)?, onChange: (String) -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Box(
             Modifier
                 .weight(1f)
                 .height(52.dp)
                 .clip(CircleShape)
-                .background(Color(0xFF242426)),
+                .background(pill)
+                .border(1.dp, Color.White.copy(alpha = borderAlpha), CircleShape),
         ) {
             Icon(Icons.Outlined.Search, contentDescription = null, tint = Color.White, modifier = Modifier.align(Alignment.CenterStart).padding(start = 16.dp).size(20.dp))
             BasicTextField(
@@ -380,7 +381,7 @@ private fun WatchedRow(quote: QuoteEntity, currency: String, sub: Color, onRemov
                 .offset { androidx.compose.ui.unit.IntOffset(drag.roundToInt(), 0) }
                 .shadow(10.dp, RoundedCornerShape(28.dp), ambientColor = Color.Black.copy(alpha = 0.45f), spotColor = Color.Black.copy(alpha = 0.45f))
                 .clip(RoundedCornerShape(28.dp))
-                .background(CardFace)
+                .background(parseHex(state.settings.cardColor))
                 .padding(horizontal = 12.dp, vertical = 12.dp)
                 .pointerInput(quote.coinId) {
                     detectHorizontalDragGestures(
@@ -434,18 +435,27 @@ private fun tapePrice(price: Double, currency: String) = CompactMoney.price(pric
 private fun parseHex(hex: String): Color = runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrDefault(Color(0xFF8E8E93))
 
 @Composable
-private fun ColorPicker(hex: String, onChange: (String) -> Unit) {
+private fun ToneControl(label: String, hex: String, onChange: (String) -> Unit) {
     val color = parseHex(hex)
-    val hsv = remember(hex) {
-        FloatArray(3).also { android.graphics.Color.colorToHSV(color.toArgb(), it) }
+    val hsv = FloatArray(3).also { android.graphics.Color.colorToHSV(color.toArgb(), it) }
+    fun paint(hue: Float, light: Float): String {
+        val packed = android.graphics.Color.HSVToColor(floatArrayOf((hue % 360f + 360f) % 360f, hsv[1].coerceAtLeast(0.18f), light.coerceIn(0.06f, 0.92f)))
+        return String.format("#%06X", 0xFFFFFF and packed)
     }
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Box(Modifier.size(28.dp).clip(CircleShape).background(color))
-        ThinSlider("Hue", hsv[0], 0f..360f, color, Color(0xFF8E8E93)) { hue ->
-            onChange(String.format("#%06X", 0xFFFFFF and android.graphics.Color.HSVToColor(floatArrayOf(hue, hsv[1].coerceAtLeast(0.15f), hsv[2].coerceIn(0.25f, 0.95f)))))
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Box(Modifier.size(42.dp).clip(CircleShape).background(color).border(1.dp, Color.White.copy(alpha = 0.35f), CircleShape))
+            Text(label, color = Color.White)
         }
-        ThinSlider("Light", hsv[2], 0.15f..0.95f, color, Color(0xFF8E8E93)) { light ->
-            onChange(String.format("#%06X", 0xFFFFFF and android.graphics.Color.HSVToColor(floatArrayOf(hsv[0], hsv[1].coerceAtLeast(0.15f), light))))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Hue", color = Color.White, modifier = Modifier.weight(1f))
+            TextButton(onClick = { onChange(paint(hsv[0] - 18f, hsv[2])) }) { Text("−", color = Color.White, fontSize = 22.sp) }
+            TextButton(onClick = { onChange(paint(hsv[0] + 18f, hsv[2])) }) { Text("+", color = Color.White, fontSize = 22.sp) }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Lighter or darker", color = Color.White, modifier = Modifier.weight(1f))
+            TextButton(onClick = { onChange(paint(hsv[0], hsv[2] - 0.07f)) }) { Text("−", color = Color.White, fontSize = 22.sp) }
+            TextButton(onClick = { onChange(paint(hsv[0], hsv[2] + 0.07f)) }) { Text("+", color = Color.White, fontSize = 22.sp) }
         }
     }
 }
@@ -532,7 +542,7 @@ private fun StudioPage(state: DeskState, vm: MoonViewModel) {
                     contentDescription = null,
                     modifier = Modifier.matchParentSize(),
                     contentScale = ContentScale.Crop,
-                    alpha = config.alpha,
+                    alpha = settings.widgetAlpha,
                 )
                 Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = config.scrim * config.alpha)))
             }
@@ -551,6 +561,9 @@ private fun StudioPage(state: DeskState, vm: MoonViewModel) {
             }
         }
         Text("PNG only. GIFs are not used on widgets.", color = Color(0xFF8E8E93), fontSize = 12.sp)
+        if (!config.backgroundPath.isNullOrBlank()) {
+            TextButton(onClick = { vm.updateWidgetConfig(config.copy(backgroundPath = null)) }) { Text("Remove background", color = Color.White) }
+        }
         OutlinedButton(
             onClick = {
                 pendingId = config.appWidgetId
@@ -741,31 +754,25 @@ private fun SettingsPage(state: DeskState, vm: MoonViewModel, menu: String, onMe
             TextButton(onClick = { vm.patch { it.copy(hideBalances = !settings.hideBalances) } }) { Text(if (settings.hideBalances) "Balances hidden" else "Balances visible", color = Color.White) }
         }
         if (menu == "theme") {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf("ink", "oled", "paper").forEach { theme ->
-                    FilterChip(selected = settings.theme == theme, onClick = { vm.patch { it.copy(theme = theme) } }, label = { Text(theme) })
-                }
+            ToneControl("Cards", settings.cardColor) { value -> vm.patch { it.copy(cardColor = value) } }
+            ToneControl("Search pill", settings.searchPillColor) { value -> vm.patch { it.copy(searchPillColor = value) } }
+            ToneControl("Search bar", settings.searchBarColor) { value -> vm.patch { it.copy(searchBarColor = value) } }
+            ThinSlider("Search bar transparency", (1f - settings.searchBarAlpha) * 100f, 0f..85f, slider, sub) { value ->
+                vm.patch { it.copy(searchBarAlpha = (1f - value / 100f).coerceIn(0.15f, 1f)) }
             }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                Text("Material You", color = Color.White)
-                Switch(checked = settings.materialYou, onCheckedChange = { checked -> vm.patch { it.copy(materialYou = checked) } })
+            ThinSlider("Pill border", settings.pillBorderAlpha * 100f, 0f..80f, slider, sub) { value ->
+                vm.patch { it.copy(pillBorderAlpha = (value / 100f).coerceIn(0f, 0.8f)) }
             }
-            Text("Widget outline", color = Color.White)
-            ColorPicker(settings.widgetBorder) { value -> vm.patch { it.copy(widgetBorder = value) } }
+            ToneControl("Widget outline", settings.widgetBorder) { value -> vm.patch { it.copy(widgetBorder = value) } }
             ThinSlider("Widget transparency", (1f - settings.widgetAlpha) * 100f, 0f..85f, slider, sub) { value ->
                 val alpha = (1f - value / 100f).coerceIn(0.15f, 1f)
                 vm.patch { it.copy(widgetAlpha = alpha) }
                 state.widgets.firstOrNull()?.let { vm.updateWidgetConfig(it.copy(alpha = alpha)) }
             }
-            Text("Slider color", color = Color.White)
-            ColorPicker(settings.sliderColor) { value -> vm.patch { it.copy(sliderColor = value) } }
-            Text("Subtext color", color = Color.White)
-            ColorPicker(settings.subtextColor) { value -> vm.patch { it.copy(subtextColor = value) } }
-            ThinSlider("Glass", settings.glass, 0f..0.8f, slider, sub) { value -> vm.patch { it.copy(glass = value) } }
+            ToneControl("Slider color", settings.sliderColor) { value -> vm.patch { it.copy(sliderColor = value) } }
+            ToneControl("Subtext color", settings.subtextColor) { value -> vm.patch { it.copy(subtextColor = value) } }
             ThinSlider("Corners", settings.radiusDp.toFloat(), 8f..32f, slider, sub) { value -> vm.patch { it.copy(radiusDp = value.toInt()) } }
             ThinSlider("Type", settings.fontScale, 0.9f..1.2f, slider, sub) { value -> vm.patch { it.copy(fontScale = value) } }
-            ThinSlider("Scrim", settings.scrim, 0f..0.9f, slider, sub) { value -> vm.patch { it.copy(scrim = value) } }
-            ThinSlider("Settings dim", settings.settingsDim, 0.05f..0.9f, slider, sub) { value -> vm.patch { it.copy(settingsDim = value) } }
             MediaPick("Settings background") { uri -> vm.importMedia(uri, "settings") { current, path -> current.copy(settingsPath = path) } }
         }
         if (menu == "splash") {

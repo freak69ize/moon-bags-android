@@ -1,18 +1,14 @@
 package com.moonbags.app.ui.theme
 
-import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -93,14 +89,10 @@ private val ExpressiveDark = darkColorScheme(
 )
 
 @Composable
-fun MoonTheme(theme: String, materialYou: Boolean, content: @Composable () -> Unit) {
-    val context = LocalContext.current
-    val dynamic = materialYou && Build.VERSION.SDK_INT >= 31
-    val scheme = when {
-        dynamic && (theme != "paper") -> dynamicDarkColorScheme(context)
-        dynamic && theme == "paper" -> dynamicLightColorScheme(context)
-        theme == "paper" -> PaperScheme
-        theme == "oled" -> ExpressiveDark.copy(background = Color.Black, surface = Color.Black)
+fun MoonTheme(theme: String, content: @Composable () -> Unit) {
+    val scheme = when (theme) {
+        "paper" -> PaperScheme
+        "oled" -> ExpressiveDark.copy(background = Color.Black, surface = Color.Black)
         else -> ExpressiveDark
     }
     MaterialTheme(colorScheme = scheme, shapes = ExpressiveShapes, typography = ExpressiveType, content = content)
