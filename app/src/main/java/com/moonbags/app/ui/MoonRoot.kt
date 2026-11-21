@@ -21,7 +21,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.ui.input.pointer.awaitPointerEvent
+import androidx.compose.ui.input.pointer.pointerInput
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -77,7 +82,6 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -219,6 +223,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
             val progress = lift.value
             val inset = 12.dp * (1f - progress)
             val travel = with(LocalDensity.current) { maxHeight.toPx() }.coerceAtLeast(1f)
+            val statusTop = with(LocalDensity.current) { WindowInsets.statusBars.getTop(this).toDp() }
             Box(
                 Modifier
                     .padding(start = inset, end = inset, bottom = inset)
@@ -228,20 +233,17 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
                     .background(parseHex(state.settings.searchBarColor).copy(alpha = state.settings.searchBarAlpha.coerceIn(0.15f, 1f)))
                     .border(1.dp, Color.White.copy(alpha = state.settings.pillBorderAlpha.coerceIn(0f, 1f)), RoundedCornerShape(if (progress > 0.92f) 0.dp else 28.dp)),
             ) {
-                Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 4.dp)) {
-                    SearchGrabber(
+                Column(Modifier.fillMaxSize().padding(start = 12.dp, end = 12.dp, top = 10.dp + statusTop * progress, bottom = 8.dp)) {
+                    val dragPill = Modifier.holdToDrag(
                         onDelta = { amount ->
                             scope.launch { lift.snapTo((lift.value - amount / travel).coerceIn(0f, 1f)) }
                         },
                         onEnd = {
                             scope.launch { lift.animateTo(if (lift.value > 0.32f) 1f else 0f, tween(460, easing = SheetEase)) }
                         },
-                        onTap = {
-                            scope.launch { lift.animateTo(if (lift.value > 0.5f) 0f else 1f, tween(460, easing = SheetEase)) }
-                        },
                     )
                     if (progress > 0.55f) {
-                        SearchField(query, parseHex(state.settings.searchPillColor), state.settings.pillBorderAlpha, onScan = {
+                        SearchField(query, parseHex(state.settings.searchPillColor), state.settings.pillBorderAlpha, dragPill, onScan = {
                             val options = GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
                             GmsBarcodeScanning.getClient(context, options).startScan()
                                 .addOnSuccessListener { barcode ->
@@ -254,7 +256,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
                         }
                     } else {
                         Box(
-                            Modifier.fillMaxWidth().height(52.dp).clip(CircleShape).background(parseHex(state.settings.searchPillColor)).border(1.dp, Color.White.copy(alpha = state.settings.pillBorderAlpha), CircleShape).clickable {
+                            Modifier.fillMaxWidth().height(52.dp).clip(CircleShape).background(parseHex(state.settings.searchPillColor)).border(1.dp, Color.White.copy(alpha = state.settings.pillBorderAlpha), CircleShape).then(dragPill).clickable {
                                 scope.launch { lift.animateTo(1f, tween(460, easing = SheetEase)) }
                             },
                             contentAlignment = Alignment.Center,
@@ -305,27 +307,32 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
 
 private fun spotLabel(price: Double, currency: String) = CompactMoney.price(price, currency)
 
-@Composable
-private fun SearchGrabber(onDelta: (Float) -> Unit, onEnd: () -> Unit, onTap: () -> Unit) {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .height(28.dp)
-            .pointerInput(Unit) { detectTapGestures { onTap() } }
-            .pointerInput(Unit) {
-                detectVerticalDragGestures(
-                    onDragEnd = { onEnd() },
-                    onVerticalDrag = { _, amount -> onDelta(amount) },
-                )
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(Modifier.width(36.dp).height(4.dp).clip(CircleShape).background(Color(0xFF8E8E93)))
+private fun Modifier.holdToDrag(onDelta: (Float) -> Unit, onEnd: () -> Unit): Modifier = pointerInput(Unit) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        val start = down.position
+        val releasedEarly = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+            while (true) {
+                val event = awaitPointerEvent()
+                val change = event.changes.firstOrNull { it.id == down.id } ?: return@withTimeoutOrNull false
+                if (!change.pressed) return@withTimeoutOrNull false
+                if ((change.position - start).getDistance() > viewConfiguration.touchSlop) return@withTimeoutOrNull false
+            }
+        }
+        if (releasedEarly != null) return@awaitEachGesture
+        while (true) {
+            val event = awaitPointerEvent()
+            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+            onDelta(change.position.y - change.previousPosition.y)
+            change.consume()
+            if (!change.pressed) break
+        }
+        onEnd()
     }
 }
 
 @Composable
-private fun SearchField(value: String, pill: Color, borderAlpha: Float, onScan: (() -> Unit)?, onChange: (String) -> Unit) {
+private fun SearchField(value: String, pill: Color, borderAlpha: Float, drag: Modifier, onScan: (() -> Unit)?, onChange: (String) -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Box(
             Modifier
@@ -333,7 +340,8 @@ private fun SearchField(value: String, pill: Color, borderAlpha: Float, onScan: 
                 .height(52.dp)
                 .clip(CircleShape)
                 .background(pill)
-                .border(1.dp, Color.White.copy(alpha = borderAlpha), CircleShape),
+                .border(1.dp, Color.White.copy(alpha = borderAlpha), CircleShape)
+                .then(drag),
         ) {
             Icon(Icons.Outlined.Search, contentDescription = null, tint = Color.White, modifier = Modifier.align(Alignment.CenterStart).padding(start = 16.dp).size(20.dp))
             BasicTextField(

@@ -54,6 +54,7 @@ class MoonViewModel(app: Application) : AndroidViewModel(app) {
             combine(graph.db.market().observeQuotes(), ticks) { quotes, live ->
                 quotes.map { quote ->
                     val tick = live[quote.symbol.uppercase()] ?: return@map quote
+                    if (quote.coinId.startsWith("cmc-") || quote.coinId.startsWith("dex")) return@map quote
                     val moved = tick.open > 0 && kotlin.math.abs(tick.price - tick.open) > tick.open * 0.0000005
                     quote.copy(
                         price = if (tick.price > 0) tick.price else quote.price,

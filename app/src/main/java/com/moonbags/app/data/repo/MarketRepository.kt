@@ -61,8 +61,8 @@ class MarketRepository(
                 symbol = hit.symbol.uppercase(),
                 price = row?.currentPrice ?: hit.price,
                 marketCap = row?.marketCap ?: hit.marketCap,
-                image = row?.image ?: hit.large.ifBlank { hit.thumb }.ifBlank { hit.image },
-                change24h = row?.change24h ?: hit.change24h,
+                image = logoFor(hit.id, row?.image ?: hit.large.ifBlank { hit.thumb }.ifBlank { hit.image }),
+                change24h = row?.changeInCurrency ?: row?.change24h ?: hit.change24h,
                 spark = row?.sparkline?.price?.joinToString(",") { it.toString() }.orEmpty(),
             )
         }
@@ -89,11 +89,11 @@ class MarketRepository(
                     coinId = row.id,
                     symbol = row.symbol.uppercase(),
                     name = row.name,
-                    price = hit.price,
+                    price = if (hit.price > 0) hit.price else row.price,
                     marketCap = row.marketCap,
-                    change24h = 0.0,
+                    change24h = if (hit.change24h != 0.0) hit.change24h else row.change24h,
                     sparkline = spark,
-                    imageUrl = "https://s2.coinmarketcap.com/static/img/coins/64x64/${row.id.removePrefix("cmc-")}.png",
+                    imageUrl = logoFor(row.id, hit.image.ifBlank { row.image }),
                     currency = currency.lowercase(),
                     updatedAt = System.currentTimeMillis(),
                 ),
@@ -116,11 +116,11 @@ class MarketRepository(
                 updatedAt = System.currentTimeMillis(),
             ),
         )
-        val markets = HttpClients.gecko.markets(fiat, ids)
-        val overlays = coinbaseOverlays(markets.map { it.symbol.uppercase() }, fiat)
         val now = System.currentTimeMillis()
         val caps = cmcCaps()
-        db.market().upsertQuotes(
+        val markets = runCatching { HttpClients.gecko.markets(fiat, ids) }.getOrDefault(emptyList())
+        val overlays = coinbaseOverlays(markets.map { it.symbol.uppercase() }, fiat)
+        if (markets.isNotEmpty()) db.market().upsertQuotes(
             markets.map { coin ->
                 val symbol = coin.symbol.uppercase()
                 val overlay = overlays[symbol]
@@ -138,6 +138,7 @@ class MarketRepository(
                 )
             },
         )
+        refreshMemes(watchIds, fiat, now)
     }
 
     suspend fun syncExchanges(): String = withContext(Dispatchers.IO) {
@@ -245,6 +246,9 @@ class MarketRepository(
                 name = coin["name"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                 chain = if (platform == "solana") "Solana" else "Base",
                 marketCap = quote?.get("marketCap")?.jsonPrimitive?.doubleOrNull ?: 0.0,
+                price = quote?.get("price")?.jsonPrimitive?.doubleOrNull ?: 0.0,
+                change24h = quote?.get("percentChange24h")?.jsonPrimitive?.doubleOrNull ?: 0.0,
+                image = "https://s2.coinmarketcap.com/static/img/coins/64x64/$id.png",
             )
         }
         memeCache = System.currentTimeMillis() to rows
@@ -273,6 +277,9 @@ class MarketRepository(
                 name = token["n"]?.jsonPrimitive?.contentOrNull ?: "Token",
                 chain = platform,
                 marketCap = token["mc"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
+                price = token["pu"]?.jsonPrimitive?.doubleOrNull ?: token["p"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
+                change24h = token["pc24h"]?.jsonPrimitive?.doubleOrNull ?: token["p24h"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
+                image = logoFor(id, token["l"]?.jsonPrimitive?.contentOrNull ?: token["lg"]?.jsonPrimitive?.contentOrNull ?: ""),
             )
         }
     }
@@ -318,6 +325,55 @@ class MarketRepository(
             }
         }
     }.getOrDefault(emptyMap())
+
+    private fun logoFor(id: String, image: String): String {
+        if (image.startsWith("http")) return image
+        val numeric = id.removePrefix("cmc-")
+        if (id.startsWith("cmc-") && numeric.all { it.isDigit() }) {
+            return "https://s2.coinmarketcap.com/static/img/coins/64x64/$numeric.png"
+        }
+        return image
+    }
+
+    private suspend fun refreshMemes(watchIds: List<String>, fiat: String, now: Long) {
+        val rows = db.market().quotes().filter { it.coinId in watchIds && (it.coinId.startsWith("cmc-") || it.coinId.startsWith("dex")) }
+        if (rows.isEmpty()) return
+        val next = rows.map { row ->
+            val fresh = memeLive(row.coinId)
+            row.copy(
+                price = fresh?.price?.takeIf { it > 0 } ?: row.price,
+                change24h = fresh?.change24h ?: row.change24h,
+                imageUrl = logoFor(row.coinId, fresh?.image?.ifBlank { row.imageUrl.orEmpty() } ?: row.imageUrl.orEmpty()).ifBlank { row.imageUrl },
+                currency = fiat,
+                updatedAt = now,
+            )
+        }
+        db.market().upsertQuotes(next)
+    }
+
+    private fun memeLive(id: String): SearchCoinDto? = runCatching {
+        if (id.startsWith("cmc-")) {
+            val numeric = id.removePrefix("cmc-")
+            val body = cmc("https://api.coinmarketcap.com/data-api/v3/cryptocurrency/detail/lite?id=$numeric")
+            val stats = MoonJson.json.parseToJsonElement(body).jsonObject["data"]?.jsonObject?.get("statistics")?.jsonObject
+            SearchCoinDto(
+                id = id,
+                price = stats?.get("price")?.jsonPrimitive?.doubleOrNull ?: 0.0,
+                change24h = stats?.get("priceChangePercentage24h")?.jsonPrimitive?.doubleOrNull ?: 0.0,
+                image = logoFor(id, ""),
+            )
+        } else {
+            val address = id.removePrefix("dexsol-").removePrefix("dexbase-")
+            val body = cmc("https://api.dexscreener.com/latest/dex/tokens/$address")
+            val pair = MoonJson.json.parseToJsonElement(body).jsonObject["pairs"]?.jsonArray?.firstOrNull()?.jsonObject ?: return@runCatching null
+            SearchCoinDto(
+                id = id,
+                price = pair["priceUsd"]?.jsonPrimitive?.contentOrNull?.toDoubleOrNull() ?: 0.0,
+                change24h = pair["priceChange"]?.jsonObject?.get("h24")?.jsonPrimitive?.doubleOrNull ?: 0.0,
+                image = pair["info"]?.jsonObject?.get("imageUrl")?.jsonPrimitive?.contentOrNull.orEmpty(),
+            )
+        }
+    }.getOrNull()
 
     private fun cmc(url: String): String {
         val request = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").header("Accept", "application/json").get().build()

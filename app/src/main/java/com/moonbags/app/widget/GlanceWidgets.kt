@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.RectF
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -14,6 +15,7 @@ import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.Image
 import androidx.glance.ImageProvider
+import androidx.glance.LocalContext
 import androidx.glance.LocalSize
 import androidx.glance.action.Action
 import androidx.glance.action.ActionParameters
@@ -24,6 +26,7 @@ import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.action.actionRunCallback
+import androidx.glance.appwidget.action.actionStartActivity
 import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.lazy.LazyColumn
 import androidx.glance.appwidget.lazy.items
@@ -229,6 +232,21 @@ private fun parseSpark(raw: String?): List<Double> {
     return all.filterIndexed { index, _ -> index % step == 0 }
 }
 
+fun frameBitmap(width: Int, height: Int, color: Int, stroke: Float, radius: Float): Bitmap {
+    val out = Bitmap.createBitmap(width.coerceAtLeast(8), height.coerceAtLeast(8), Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(out)
+    val inset = stroke / 2f + 4f
+    val rect = RectF(inset, inset, out.width - inset, out.height - inset)
+    val corner = radius.coerceAtMost(minOf(rect.width(), rect.height()) / 2f)
+    canvas.drawRoundRect(rect, corner, corner, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = stroke
+        this.color = color
+        strokeJoin = Paint.Join.ROUND
+    })
+    return out.freeze()
+}
+
 fun widgetPlate(image: Bitmap?, tint: Int, alpha: Float, tintOn: Boolean): Bitmap {
     val width = 320
     val height = 180
@@ -300,44 +318,67 @@ fun sparkBitmap(values: List<Double>, up: Boolean): Bitmap {
 }
 
 @Composable
-private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = true, body: @Composable ColumnScope.() -> Unit) {
+private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = true, tapBody: Boolean = true, body: @Composable ColumnScope.() -> Unit) {
+    val context = LocalContext.current
+    val open = launchAction(context, snap.tapPackage)
+    val size = LocalSize.current
+    val density = context.resources.displayMetrics.density
+    val frame = frameBitmap(
+        (size.width.value * density).toInt(),
+        (size.height.value * density).toInt(),
+        android.graphics.Color.argb((snap.border.alpha * 255).toInt().coerceIn(0, 255), (snap.border.red * 255).toInt(), (snap.border.green * 255).toInt(), (snap.border.blue * 255).toInt()),
+        2.5f * density,
+        22f * density,
+    )
     val plate = snap.background?.freeze()
-    Box(modifier = GlanceModifier.fillMaxSize().background(ColorProvider(snap.border))) {
-        val inner = GlanceModifier.fillMaxSize().padding(2.dp)
-        val filled = if (plate != null) inner.background(ImageProvider(plate), ContentScale.FillBounds) else inner.background(ColorProvider(Color(0xFF3A3842).copy(alpha = snap.alpha.coerceIn(0.15f, 1f))))
-        Box(modifier = filled) {
+    Box(modifier = GlanceModifier.fillMaxSize()) {
+        val fill = if (plate != null) {
+            GlanceModifier.fillMaxSize().background(ImageProvider(plate), ContentScale.FillBounds)
+        } else {
+            GlanceModifier.fillMaxSize().background(ColorProvider(Color(0xFF3A3842).copy(alpha = snap.alpha.coerceIn(0.15f, 1f))))
+        }
+        Box(modifier = fill) {}
+        Image(provider = ImageProvider(frame), contentDescription = null, modifier = GlanceModifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
         Column(modifier = GlanceModifier.fillMaxSize().padding(16.dp)) {
             if (showTitle) {
-            Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                if (snap.title.isNotBlank()) {
-                    Text(
-                        snap.title,
-                        style = TextStyle(color = ColorProvider(Brass), fontSize = 11.sp, fontWeight = FontWeight.Medium),
-                    )
-                }
-                if (eye) {
+                Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    if (snap.title.isNotBlank()) {
+                        Text(
+                            snap.title,
+                            modifier = GlanceModifier.defaultWeight(),
+                            style = TextStyle(color = ColorProvider(Brass), fontSize = 11.sp, fontWeight = FontWeight.Medium),
+                        )
+                    }
+                    if (eye) {
+                        Image(
+                            provider = ImageProvider(if (snap.hidden) R.drawable.ic_eye_off else R.drawable.ic_eye),
+                            contentDescription = "Toggle privacy",
+                            modifier = GlanceModifier.size(18.dp).clickable(privacyClick()),
+                        )
+                    }
                     Image(
-                        provider = ImageProvider(if (snap.hidden) R.drawable.ic_eye_off else R.drawable.ic_eye),
-                        contentDescription = "Toggle privacy",
-                        modifier = GlanceModifier.size(18.dp).clickable(privacyClick()),
+                        provider = ImageProvider(R.drawable.ic_refresh),
+                        contentDescription = "Refresh",
+                        modifier = GlanceModifier.size(28.dp).clickable(refreshClick()),
                     )
                 }
-                Image(
-                    provider = ImageProvider(R.drawable.ic_refresh),
-                    contentDescription = "Refresh",
-                    modifier = GlanceModifier.size(18.dp).clickable(refreshClick()),
-                )
             }
-            }
-            OpenBody(body)
-        }
+            OpenBody(if (tapBody) open else null, body)
         }
     }
 }
 
+private fun launchAction(context: Context, pkg: String): Action? {
+    if (pkg.isBlank()) return null
+    val intent = context.packageManager.getLaunchIntentForPackage(pkg.trim()) ?: return null
+    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    return actionStartActivity(intent)
+}
+
 @Composable
-private fun ColumnScope.OpenBody(body: @Composable ColumnScope.() -> Unit) {
-    Column(GlanceModifier.fillMaxWidth().defaultWeight()) { body() }
+private fun ColumnScope.OpenBody(open: Action?, body: @Composable ColumnScope.() -> Unit) {
+    val modifier = GlanceModifier.fillMaxWidth().defaultWeight()
+    if (open == null) Column(modifier) { body() } else Column(modifier.clickable(open)) { body() }
 }
 
 private fun refreshClick() = actionRunCallback<RefreshAction>()
@@ -351,12 +392,13 @@ class TotalMarketCapWidget : GlanceAppWidget() {
         val chart = sparkBitmap(snap.spark, snap.up)
         provideContent {
             val height = LocalSize.current.height
-            Chrome(snap, showTitle = false) {
+            val open = launchAction(LocalContext.current, snap.tapPackage)
+            Chrome(snap, showTitle = false, tapBody = false) {
                 Column(modifier = GlanceModifier.fillMaxWidth()) {
                     Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             snap.primary,
-                            modifier = GlanceModifier.defaultWeight(),
+                            modifier = if (open != null) GlanceModifier.defaultWeight().clickable(open) else GlanceModifier.defaultWeight(),
                             style = TextStyle(
                                 color = ColorProvider(Paper),
                                 fontSize = when {
@@ -375,14 +417,16 @@ class TotalMarketCapWidget : GlanceAppWidget() {
                     }
                     Text(
                         snap.secondary + " 24h",
+                        modifier = if (open != null) GlanceModifier.clickable(open) else GlanceModifier,
                         style = TextStyle(color = ColorProvider(if (snap.up) UpColor else DownColor), fontSize = 13.sp),
                     )
                 }
                 if (snap.spark.size > 1) {
+                    val chartMod = GlanceModifier.fillMaxWidth().defaultWeight()
                     Image(
                         provider = ImageProvider(chart),
                         contentDescription = "Market trend",
-                        modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
+                        modifier = if (open != null) chartMod.clickable(open) else chartMod,
                         contentScale = ContentScale.FillBounds,
                     )
                 }
