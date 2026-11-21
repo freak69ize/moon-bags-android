@@ -434,28 +434,54 @@ private fun tapePrice(price: Double, currency: String) = CompactMoney.price(pric
 
 private fun parseHex(hex: String): Color = runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrDefault(Color(0xFF8E8E93))
 
+private val BasicColors = listOf(
+    "#E23D3D",
+    "#F08A2A",
+    "#F2C14E",
+    "#7CDB4A",
+    "#3DDC84",
+    "#2EC4B6",
+    "#3AA0FF",
+    "#5B6CFF",
+    "#A56BFF",
+    "#E45AD2",
+)
+
 @Composable
 private fun ToneControl(label: String, hex: String, onChange: (String) -> Unit) {
     val color = parseHex(hex)
     val hsv = FloatArray(3).also { android.graphics.Color.colorToHSV(color.toArgb(), it) }
-    fun paint(hue: Float, light: Float): String {
-        val packed = android.graphics.Color.HSVToColor(floatArrayOf((hue % 360f + 360f) % 360f, hsv[1].coerceAtLeast(0.18f), light.coerceIn(0.06f, 0.92f)))
+    fun lighter(step: Float): String {
+        val packed = android.graphics.Color.HSVToColor(floatArrayOf(hsv[0], hsv[1].coerceAtLeast(0.35f), (hsv[2] + step).coerceIn(0.08f, 0.94f)))
         return String.format("#%06X", 0xFFFFFF and packed)
     }
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Box(Modifier.size(42.dp).clip(CircleShape).background(color).border(1.dp, Color.White.copy(alpha = 0.35f), CircleShape))
-            Text(label, color = Color.White)
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Hue", color = Color.White, modifier = Modifier.weight(1f))
-            TextButton(onClick = { onChange(paint(hsv[0] - 18f, hsv[2])) }) { Text("−", color = Color.White, fontSize = 22.sp) }
-            TextButton(onClick = { onChange(paint(hsv[0] + 18f, hsv[2])) }) { Text("+", color = Color.White, fontSize = 22.sp) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(label, color = Color.White)
+        Box(Modifier.size(176.dp).align(Alignment.CenterHorizontally), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(46.dp).clip(CircleShape).background(color).border(2.dp, Color.White.copy(alpha = 0.7f), CircleShape))
+            BasicColors.forEachIndexed { index, swatch ->
+                val angle = index * (2.0 * Math.PI / BasicColors.size) - Math.PI / 2.0
+                Box(
+                    Modifier
+                        .offset {
+                            val radius = 64.dp.toPx()
+                            androidx.compose.ui.unit.IntOffset(
+                                (kotlin.math.cos(angle) * radius).roundToInt(),
+                                (kotlin.math.sin(angle) * radius).roundToInt(),
+                            )
+                        }
+                        .size(26.dp)
+                        .clip(CircleShape)
+                        .background(parseHex(swatch))
+                        .border(1.dp, Color.White.copy(alpha = 0.35f), CircleShape)
+                        .clickable { onChange(swatch) },
+                )
+            }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Lighter or darker", color = Color.White, modifier = Modifier.weight(1f))
-            TextButton(onClick = { onChange(paint(hsv[0], hsv[2] - 0.07f)) }) { Text("−", color = Color.White, fontSize = 22.sp) }
-            TextButton(onClick = { onChange(paint(hsv[0], hsv[2] + 0.07f)) }) { Text("+", color = Color.White, fontSize = 22.sp) }
+            TextButton(onClick = { onChange(lighter(-0.08f)) }) { Text("−", color = Color.White, fontSize = 22.sp) }
+            TextButton(onClick = { onChange(lighter(0.08f)) }) { Text("+", color = Color.White, fontSize = 22.sp) }
         }
     }
 }
