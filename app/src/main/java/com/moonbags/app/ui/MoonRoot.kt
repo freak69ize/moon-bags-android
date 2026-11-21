@@ -104,9 +104,11 @@ import java.io.File
 
 private enum class Page { Tape, Widgets, Settings }
 
-private val Night = Color(0xFF0E0E10)
+private val Night = Color(0xFF131318)
 private val Card = Color(0xFF1C1C1E)
+private val CardFace = Color(0xFF3A3842)
 private val Pill = Color(0xFF2C2C2E)
+private val SheetEase = androidx.compose.animation.core.CubicBezierEasing(0.22f, 0.8f, 0.2f, 1f)
 
 @Composable
 fun MoonRoot(vm: MoonViewModel) {
@@ -129,7 +131,7 @@ fun MoonRoot(vm: MoonViewModel) {
                 Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = state.settings.settingsDim.coerceIn(0.05f, 0.85f))))
             }
             when (page) {
-                Page.Tape -> TapePage(state, vm)
+                Page.Tape -> TapePage(state, vm, onWidgets = { page = Page.Widgets }, onSettings = { page = Page.Settings })
                 Page.Widgets -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         TextButton(onClick = { page = Page.Tape }) { Text("Close", color = Color.White) }
@@ -139,25 +141,6 @@ fun MoonRoot(vm: MoonViewModel) {
                     StudioPage(state, vm)
                 }
                 Page.Settings -> SettingsPage(state, vm, menu, { menu = it }) { page = Page.Tape; menu = "home" }
-            }
-            if (page == Page.Tape) {
-                Row(
-                    Modifier.align(Alignment.TopStart).fillMaxWidth().statusBarsPadding().padding(start = 16.dp, end = 8.dp, top = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("MoonBags", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                    Row(
-                        Modifier.clip(CircleShape).background(Pill).padding(horizontal = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(Modifier.size(40.dp).clickable { page = Page.Widgets }, contentAlignment = Alignment.Center) {
-                            Canvas(Modifier.size(18.dp)) {
-                                drawCircle(Color.White, style = Stroke(width = 2.dp.toPx()))
-                            }
-                        }
-                        Icon(Icons.Outlined.MoreVert, contentDescription = "Settings", tint = Color.White, modifier = Modifier.size(40.dp).clickable { page = Page.Settings })
-                    }
-                }
             }
         }
     }
@@ -178,7 +161,7 @@ private fun LaunchSplash(path: String?, onSkip: () -> Unit) {
 }
 
 @Composable
-private fun TapePage(state: DeskState, vm: MoonViewModel) {
+private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit, onSettings: () -> Unit) {
     val currency = state.settings.currency
     val sub = parseHex(state.settings.subtextColor)
     var query by remember { mutableStateOf("") }
@@ -187,12 +170,47 @@ private fun TapePage(state: DeskState, vm: MoonViewModel) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val watch = state.settings.watchIds.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
-    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(start = 12.dp, end = 12.dp, top = 64.dp, bottom = 148.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            state.error?.let { Text(it, color = Down) }
-            state.quotes.filter { it.coinId in watch }.forEach { quote ->
-                WatchedRow(quote, currency, sub) {
-                    vm.patch { it.copy(watchIds = watch.filterNot { id -> id == quote.coinId }.joinToString(",")) }
+    Box(Modifier.fillMaxSize().background(Night)) {
+        Column(
+            Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(bottom = 176.dp),
+        ) {
+            Row(
+                Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("MoonBags", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                Row(
+                    Modifier.clip(CircleShape).background(Pill).padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(40.dp).clickable(onClick = onWidgets), contentAlignment = Alignment.Center) {
+                        Canvas(Modifier.size(20.dp)) {
+                            drawCircle(Color.White, style = Stroke(width = 2.dp.toPx()))
+                        }
+                    }
+                    Box(Modifier.size(40.dp).clickable(onClick = onSettings), contentAlignment = Alignment.Center) {
+                        Canvas(Modifier.size(20.dp)) {
+                            val r = 1.6.dp.toPx()
+                            val y = size.height / 2f
+                            listOf(0.22f, 0.5f, 0.78f).forEach { fraction ->
+                                drawCircle(Color.White, r, Offset(size.width * fraction, y))
+                            }
+                        }
+                    }
+                }
+            }
+            state.error?.let { Text(it, color = Down, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) }
+            Column(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                val rows = state.quotes.filter { it.coinId in watch }
+                if (rows.isEmpty()) {
+                    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(CardFace).padding(vertical = 64.dp), contentAlignment = Alignment.Center) {
+                        Text(if (state.refreshing) "Pulling prices…" else "Search a name or contract to add a coin.", color = sub, fontSize = 14.sp)
+                    }
+                }
+                rows.forEach { quote ->
+                    WatchedRow(quote, currency, sub) {
+                        vm.patch { it.copy(watchIds = watch.filterNot { id -> id == quote.coinId }.joinToString(",")) }
+                    }
                 }
             }
         }
@@ -206,7 +224,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel) {
                     .fillMaxWidth()
                     .height(96.dp + (maxHeight - 96.dp) * progress)
                     .clip(RoundedCornerShape(if (progress > 0.92f) 0.dp else 28.dp))
-                    .background(Color(0xFF1A1A1C).copy(alpha = 0.55f + 0.4f * progress))
+                    .background(Color.Black.copy(alpha = 0.42f + 0.48f * progress))
                     .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(if (progress > 0.92f) 0.dp else 28.dp)),
             ) {
                 Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 4.dp)) {
@@ -215,10 +233,10 @@ private fun TapePage(state: DeskState, vm: MoonViewModel) {
                             scope.launch { lift.snapTo((lift.value - amount / travel).coerceIn(0f, 1f)) }
                         },
                         onEnd = {
-                            scope.launch { lift.animateTo(if (lift.value > 0.32f) 1f else 0f, tween(460)) }
+                            scope.launch { lift.animateTo(if (lift.value > 0.32f) 1f else 0f, tween(460, easing = SheetEase)) }
                         },
                         onTap = {
-                            scope.launch { lift.animateTo(if (lift.value > 0.5f) 0f else 1f, tween(460)) }
+                            scope.launch { lift.animateTo(if (lift.value > 0.5f) 0f else 1f, tween(460, easing = SheetEase)) }
                         },
                     )
                     if (progress > 0.55f) {
@@ -236,7 +254,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel) {
                     } else {
                         Box(
                             Modifier.fillMaxWidth().height(52.dp).clip(CircleShape).background(Color(0xFF242426)).clickable {
-                                scope.launch { lift.animateTo(1f, tween(460)) }
+                                scope.launch { lift.animateTo(1f, tween(460, easing = SheetEase)) }
                             },
                             contentAlignment = Alignment.Center,
                         ) {
@@ -255,7 +273,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel) {
                                         vm.addWatched(hit)
                                         query = ""
                                         hits = emptyList()
-                                        scope.launch { lift.animateTo(0f, tween(420)) }
+                                        scope.launch { lift.animateTo(0f, tween(420, easing = SheetEase)) }
                                     }.padding(vertical = 10.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
@@ -360,10 +378,9 @@ private fun WatchedRow(quote: QuoteEntity, currency: String, sub: Color, onRemov
             Modifier
                 .fillMaxWidth()
                 .offset { androidx.compose.ui.unit.IntOffset(drag.roundToInt(), 0) }
-                .shadow(8.dp, RoundedCornerShape(28.dp), clip = false)
+                .shadow(10.dp, RoundedCornerShape(28.dp), ambientColor = Color.Black.copy(alpha = 0.45f), spotColor = Color.Black.copy(alpha = 0.45f))
                 .clip(RoundedCornerShape(28.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-                .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f), RoundedCornerShape(28.dp))
+                .background(CardFace)
                 .padding(horizontal = 12.dp, vertical = 12.dp)
                 .pointerInput(quote.coinId) {
                     detectHorizontalDragGestures(
@@ -382,13 +399,13 @@ private fun WatchedRow(quote: QuoteEntity, currency: String, sub: Color, onRemov
             }
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text(quote.name, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(quote.name, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(quote.symbol.uppercase(), color = sub, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             MiniSpark(quote.sparkline, up, Modifier.width(64.dp).height(36.dp))
             Spacer(Modifier.width(8.dp))
             Column(Modifier.width(86.dp), horizontalAlignment = Alignment.End) {
-                Text(tapePrice(quote.price, currency), color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(tapePrice(quote.price, currency), color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text((if (up) "↗ " else "↘ ") + String.format("%.2f%%", kotlin.math.abs(quote.change24h)), color = if (up) Color(0xFF3DDC84) else Color(0xFFFF6B81), fontSize = 13.sp, maxLines = 1)
             }
         }
