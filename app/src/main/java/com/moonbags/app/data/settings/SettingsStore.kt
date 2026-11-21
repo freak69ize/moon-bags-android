@@ -38,6 +38,7 @@ data class UserSettings(
     val searchBarColor: String = "#000000",
     val searchBarAlpha: Float = 0.72f,
     val pillBorderAlpha: Float = 0.28f,
+    val widgetTint: Boolean = true,
 )
 
 class SettingsStore(private val context: Context) {
@@ -68,6 +69,7 @@ class SettingsStore(private val context: Context) {
             searchBarColor = prefs[Keys.searchBarColor] ?: "#000000",
             searchBarAlpha = prefs[Keys.searchBarAlpha] ?: 0.72f,
             pillBorderAlpha = prefs[Keys.pillBorderAlpha] ?: 0.28f,
+            widgetTint = prefs[Keys.widgetTint] ?: true,
         )
     }
 
@@ -100,6 +102,7 @@ class SettingsStore(private val context: Context) {
                     searchBarColor = prefs[Keys.searchBarColor] ?: "#000000",
                     searchBarAlpha = prefs[Keys.searchBarAlpha] ?: 0.72f,
                     pillBorderAlpha = prefs[Keys.pillBorderAlpha] ?: 0.28f,
+                    widgetTint = prefs[Keys.widgetTint] ?: true,
                 ),
             )
             prefs[Keys.currency] = next.currency
@@ -127,6 +130,7 @@ class SettingsStore(private val context: Context) {
             prefs[Keys.searchBarColor] = next.searchBarColor
             prefs[Keys.searchBarAlpha] = next.searchBarAlpha
             prefs[Keys.pillBorderAlpha] = next.pillBorderAlpha
+            prefs[Keys.widgetTint] = next.widgetTint
         }
     }
 
@@ -156,5 +160,6 @@ class SettingsStore(private val context: Context) {
         val searchBarColor = stringPreferencesKey("search_bar_color")
         val searchBarAlpha = floatPreferencesKey("search_bar_alpha")
         val pillBorderAlpha = floatPreferencesKey("pill_border_alpha")
+        val widgetTint = booleanPreferencesKey("widget_tint")
     }
 }

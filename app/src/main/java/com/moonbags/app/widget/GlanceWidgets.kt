@@ -132,7 +132,7 @@ object WidgetSnapshots {
         val holdings = graph.db.holdings().all()
         val raw = graph.media.decodeForWidget(config.backgroundPath, 640)
         val tint = runCatching { android.graphics.Color.parseColor(settings.widgetBorder) }.getOrDefault(0xFF3A3842.toInt())
-        val background = widgetPlate(raw, tint, settings.widgetAlpha)
+        val background = widgetPlate(raw, tint, settings.widgetAlpha, settings.widgetTint)
         return render(config, settings.currency, settings.hideBalances, global, quotes, holdings, background)
             .copy(
                 alpha = settings.widgetAlpha,
@@ -232,7 +232,7 @@ private fun parseSpark(raw: String?): List<Double> {
     return all.filterIndexed { index, _ -> index % step == 0 }
 }
 
-fun widgetPlate(image: Bitmap?, tint: Int, alpha: Float): Bitmap {
+fun widgetPlate(image: Bitmap?, tint: Int, alpha: Float, tintOn: Boolean): Bitmap {
     val width = 640
     val height = 360
     val out = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
@@ -255,13 +255,15 @@ fun widgetPlate(image: Bitmap?, tint: Int, alpha: Float): Bitmap {
             android.graphics.RectF(left, top, left + drawnWidth, top + drawnHeight),
             Paint(Paint.ANTI_ALIAS_FLAG).apply { this.alpha = (strength * 255).toInt() },
         )
-        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), Paint().apply {
-            color = tint
-            this.alpha = (strength * 0.5f * 255).toInt()
-        })
+        if (tintOn) {
+            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), Paint().apply {
+                color = tint
+                this.alpha = (strength * 0.5f * 255).toInt()
+            })
+        }
     } else {
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = tint
+            color = if (tintOn) tint else 0xFF3A3842.toInt()
             this.alpha = (strength * 255).toInt()
         })
     }

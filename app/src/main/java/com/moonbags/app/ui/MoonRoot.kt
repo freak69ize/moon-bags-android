@@ -550,7 +550,11 @@ private fun StudioPage(state: DeskState, vm: MoonViewModel) {
                 .clip(RoundedCornerShape(state.settings.radiusDp.dp))
                 .border(1.dp, parseHex(settings.widgetBorder), RoundedCornerShape(state.settings.radiusDp.dp))
                 .background(
-                    if (config.backgroundPath.isNullOrBlank()) parseHex(settings.widgetBorder).copy(alpha = settings.widgetAlpha) else Color.Transparent,
+                    if (config.backgroundPath.isNullOrBlank()) {
+                        (if (settings.widgetTint) parseHex(settings.widgetBorder) else Color(0xFF3A3842)).copy(alpha = settings.widgetAlpha)
+                    } else {
+                        Color.Transparent
+                    },
                     RoundedCornerShape(state.settings.radiusDp.dp),
                 )
                 .padding(16.dp),
@@ -563,7 +567,9 @@ private fun StudioPage(state: DeskState, vm: MoonViewModel) {
                     contentScale = ContentScale.Crop,
                     alpha = settings.widgetAlpha,
                 )
-                Box(Modifier.matchParentSize().background(parseHex(settings.widgetBorder).copy(alpha = 0.45f * settings.widgetAlpha)))
+                if (settings.widgetTint) {
+                    Box(Modifier.matchParentSize().background(parseHex(settings.widgetBorder).copy(alpha = 0.45f * settings.widgetAlpha)))
+                }
             }
             Column {
                 Text(snap.title, color = Brass)
@@ -783,6 +789,13 @@ private fun SettingsPage(state: DeskState, vm: MoonViewModel, menu: String, onMe
                 vm.patch { it.copy(pillBorderAlpha = (value / 100f).coerceIn(0f, 0.8f)) }
             }
             ToneControl("Widget outline", settings.widgetBorder) { value -> vm.patch { it.copy(widgetBorder = value) } }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("Widget tint", color = Color.White)
+                Switch(checked = settings.widgetTint, onCheckedChange = { checked ->
+                    vm.patch { it.copy(widgetTint = checked) }
+                    state.widgets.firstOrNull()?.let { vm.updateWidgetConfig(it) }
+                })
+            }
             ThinSlider("Widget transparency", (1f - settings.widgetAlpha) * 100f, 0f..100f, slider, sub) { value ->
                 val alpha = (1f - value / 100f).coerceIn(0f, 1f)
                 vm.patch { it.copy(widgetAlpha = alpha) }
