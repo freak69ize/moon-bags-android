@@ -262,27 +262,78 @@ class MarketRepository(
 
     private fun searchDex(query: String): List<SearchCoinDto> {
         if (query.length < 2) return emptyList()
+        val fromCmc = runCatching { searchCmcDex(query) }.getOrDefault(emptyList())
+        if (fromCmc.isNotEmpty()) return fromCmc
+        return runCatching { searchDexScreener(query) }.getOrDefault(emptyList())
+    }
+
+    private fun searchCmcDex(query: String): List<SearchCoinDto> {
         val body = cmc("https://pro-api.coinmarketcap.com/public-api/v1/dex/search?q=${java.net.URLEncoder.encode(query, "UTF-8")}")
         val tokens = MoonJson.json.parseToJsonElement(body).jsonObject["data"]?.jsonObject?.get("tks")?.jsonArray.orEmpty()
         return tokens.mapNotNull { element ->
             val token = element.jsonObject
             val platform = token["plt"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
-            if (platform != "Solana" && platform != "Base") return@mapNotNull null
             val address = token["addr"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
-            val cid = token["cid"]?.jsonPrimitive?.contentOrNull
-            val id = if (!cid.isNullOrBlank() && cid != "0") "cmc-$cid" else if (platform == "Solana") "dexsol-$address" else "dexbase-$address"
+            val price = jsonDouble(token["pu"]) ?: jsonDouble(token["p"]) ?: 0.0
             SearchCoinDto(
-                id = id,
+                id = dexId(platform, address),
                 symbol = token["s"]?.jsonPrimitive?.contentOrNull?.uppercase().orEmpty(),
                 name = token["n"]?.jsonPrimitive?.contentOrNull ?: "Token",
                 chain = platform,
-                marketCap = token["mc"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
-                price = token["pu"]?.jsonPrimitive?.doubleOrNull ?: token["p"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
-                change24h = token["pc24h"]?.jsonPrimitive?.doubleOrNull ?: token["p24h"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
-                image = logoFor(id, token["l"]?.jsonPrimitive?.contentOrNull ?: token["lg"]?.jsonPrimitive?.contentOrNull ?: ""),
+                marketCap = jsonDouble(token["mc"]) ?: 0.0,
+                price = price,
+                change24h = dexPercent(jsonDouble(token["pc24h"]) ?: jsonDouble(token["p24h"]) ?: 0.0),
+                image = logoFor(dexId(platform, address), token["l"]?.jsonPrimitive?.contentOrNull ?: token["lg"]?.jsonPrimitive?.contentOrNull ?: ""),
             )
-        }
+        }.distinctBy { it.id }.take(12)
     }
+
+    private fun searchDexScreener(query: String): List<SearchCoinDto> {
+        val endpoint = if (isContract(query)) {
+            "https://api.dexscreener.com/latest/dex/tokens/${java.net.URLEncoder.encode(query, "UTF-8")}"
+        } else {
+            "https://api.dexscreener.com/latest/dex/search?q=${java.net.URLEncoder.encode(query, "UTF-8")}"
+        }
+        val body = cmc(endpoint)
+        val pairs = MoonJson.json.parseToJsonElement(body).jsonObject["pairs"]?.jsonArray.orEmpty()
+        return pairs.mapNotNull { element ->
+            val pair = element.jsonObject
+            val chainId = pair["chainId"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+            val base = pair["baseToken"]?.jsonObject ?: return@mapNotNull null
+            val address = base["address"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+            val chain = chainId.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+            SearchCoinDto(
+                id = dexId(chainId, address),
+                symbol = base["symbol"]?.jsonPrimitive?.contentOrNull?.uppercase().orEmpty(),
+                name = base["name"]?.jsonPrimitive?.contentOrNull ?: "Token",
+                chain = chain,
+                marketCap = jsonDouble(pair["marketCap"]) ?: jsonDouble(pair["fdv"]) ?: 0.0,
+                price = pair["priceUsd"]?.jsonPrimitive?.contentOrNull?.toDoubleOrNull() ?: 0.0,
+                change24h = pair["priceChange"]?.jsonObject?.get("h24")?.jsonPrimitive?.doubleOrNull ?: 0.0,
+                image = pair["info"]?.jsonObject?.get("imageUrl")?.jsonPrimitive?.contentOrNull.orEmpty(),
+            )
+        }.distinctBy { it.id }.take(12)
+    }
+
+    private fun dexId(platform: String, address: String): String = when (platform.lowercase()) {
+        "solana" -> "dexsol-$address"
+        "base" -> "dexbase-$address"
+        else -> "dex-${platform.lowercase()}-$address"
+    }
+
+    private fun dexAddress(id: String): String = when {
+        id.startsWith("dexsol-") -> id.removePrefix("dexsol-")
+        id.startsWith("dexbase-") -> id.removePrefix("dexbase-")
+        id.startsWith("dex-") -> id.substringAfterLast("-")
+        else -> id
+    }
+
+    private fun jsonDouble(element: kotlinx.serialization.json.JsonElement?): Double? {
+        val primitive = element?.jsonPrimitive ?: return null
+        return primitive.doubleOrNull ?: primitive.contentOrNull?.toDoubleOrNull()
+    }
+
+    private fun dexPercent(raw: Double): Double = if (kotlin.math.abs(raw) <= 1.0) raw * 100 else raw
 
     private fun memeSpark(id: String): String {
         val numeric = id.removePrefix("cmc-")
@@ -363,7 +414,7 @@ class MarketRepository(
                 image = logoFor(id, ""),
             )
         } else {
-            val address = id.removePrefix("dexsol-").removePrefix("dexbase-")
+            val address = dexAddress(id)
             val body = cmc("https://api.dexscreener.com/latest/dex/tokens/$address")
             val pair = MoonJson.json.parseToJsonElement(body).jsonObject["pairs"]?.jsonArray?.firstOrNull()?.jsonObject ?: return@runCatching null
             SearchCoinDto(

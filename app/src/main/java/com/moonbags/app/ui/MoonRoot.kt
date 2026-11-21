@@ -289,7 +289,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
                                     Spacer(Modifier.width(12.dp))
                                     Column(Modifier.weight(1f)) {
                                         Text(hit.name, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        Text(hit.symbol.uppercase(), color = sub, fontSize = 13.sp)
+                                        Text(listOf(hit.symbol.uppercase(), hit.chain).filter { it.isNotBlank() }.joinToString(" · "), color = sub, fontSize = 13.sp)
                                     }
                                     MiniSpark(hit.spark, hit.change24h >= 0, Modifier.width(56.dp).height(32.dp))
                                     Spacer(Modifier.width(8.dp))
