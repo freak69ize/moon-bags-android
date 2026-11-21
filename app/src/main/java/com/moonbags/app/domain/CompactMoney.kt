@@ -33,16 +33,17 @@ object CompactMoney {
         return sign + symbol + trim(String.format(Locale.US, "%.${digits}f", scaled)) + unit.second
     }
 
-    /** Spot prices: at least 4 decimals, 6–8 under one cent. */
-    fun price(value: Double, currency: String): String {
+    /** Spot prices. digits 5 prints 0.00000, digits 4 prints 0.0000. */
+    fun price(value: Double, currency: String, digits: Int = 5): String {
         if (value.isNaN() || value.isInfinite()) return "—"
         val symbol = symbol(currency)
         val sign = if (value < 0) "-" else ""
         val abs = kotlin.math.abs(value)
-        if (abs == 0.0) return symbol + "0.0000"
-        if (abs >= 0.01) return sign + symbol + String.format(Locale.US, "%,.4f", abs)
-        val places = kotlin.math.min(8, kotlin.math.max(6, kotlin.math.ceil(-kotlin.math.log10(abs)).toInt() + 2))
-        return sign + symbol + String.format(Locale.US, "%.${places}f", abs)
+        val places = if (abs > 0.0 && abs < Math.pow(10.0, -digits.toDouble())) {
+            kotlin.math.min(8, kotlin.math.ceil(-kotlin.math.log10(abs)).toInt() + 2)
+        } else digits
+        val pattern = if (abs >= 1000.0) "%,.${places}f" else "%.${places}f"
+        return sign + symbol + String.format(Locale.US, pattern, abs)
     }
 
     /** Global cap like the CoinMarketCap app: $2.13T. */

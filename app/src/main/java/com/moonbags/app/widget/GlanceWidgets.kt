@@ -98,6 +98,7 @@ data class WidgetSnap(
     val acrylicHue: Float = 220f,
     val acrylicSat: Float = 0.55f,
     val acrylicLight: Float = 0.18f,
+    val border: Color = Color(0xFFD0BCFF),
 )
 
 private val Paper = Color(0xFFEFE8DC)
@@ -131,12 +132,13 @@ object WidgetSnapshots {
         val background = graph.media.decodeForWidget(config.backgroundPath, 360)
         return render(config, settings.currency, settings.hideBalances, global, quotes, holdings, background)
             .copy(
-                alpha = config.alpha,
+                alpha = settings.widgetAlpha,
                 tapPackage = settings.tapPackage,
                 acrylic = config.acrylic,
                 acrylicHue = config.acrylicHue,
                 acrylicSat = config.acrylicSat,
                 acrylicLight = config.acrylicLight,
+                border = runCatching { Color(android.graphics.Color.parseColor(settings.widgetBorder)) }.getOrDefault(Color(0xFFD0BCFF)),
             )
     }
 }
@@ -273,8 +275,9 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = 
             actionStartActivity(intent)
         }
     }
-    val veil = Ink.copy(alpha = snap.alpha.coerceIn(0.15f, 1f))
-    Box(modifier = GlanceModifier.fillMaxSize().cornerRadius(28.dp)) {
+    val veil = Color(0xFF3A3842).copy(alpha = snap.alpha.coerceIn(0.15f, 0.92f))
+    Box(modifier = GlanceModifier.fillMaxSize().cornerRadius(28.dp).background(ColorProvider(snap.border))) {
+        Box(modifier = GlanceModifier.fillMaxSize().padding(1.dp).cornerRadius(27.dp)) {
         if (snap.background != null) {
             Image(
                 provider = ImageProvider(snap.background),
@@ -290,7 +293,7 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = 
         } else if (snap.acrylic) {
             Box(
                 modifier = GlanceModifier.fillMaxSize().background(
-                    ColorProvider(Color.hsl(snap.acrylicHue, snap.acrylicSat.coerceIn(0f, 1f), snap.acrylicLight.coerceIn(0f, 1f)).copy(alpha = 0.78f)),
+                    ColorProvider(Color.hsl(snap.acrylicHue, snap.acrylicSat.coerceIn(0f, 1f), snap.acrylicLight.coerceIn(0f, 1f)).copy(alpha = (0.72f * snap.alpha).coerceIn(0.2f, 0.9f))),
                 ),
             ) {}
         } else {
@@ -320,6 +323,7 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = 
             }
             }
             OpenBody(open, body)
+        }
         }
     }
 }

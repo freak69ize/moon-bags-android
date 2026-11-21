@@ -8,6 +8,7 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.animation.core.Animatable
@@ -47,7 +48,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.foundation.border
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.ui.text.TextStyle
@@ -67,6 +67,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.geometry.Offset
@@ -205,7 +206,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel) {
                     .fillMaxWidth()
                     .height(96.dp + (maxHeight - 96.dp) * progress)
                     .clip(RoundedCornerShape(if (progress > 0.92f) 0.dp else 28.dp))
-                    .background(Color.Black.copy(alpha = 0.42f + 0.48f * progress))
+                    .background(Color(0xFF1A1A1C).copy(alpha = 0.55f + 0.4f * progress))
                     .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(if (progress > 0.92f) 0.dp else 28.dp)),
             ) {
                 Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 4.dp)) {
@@ -234,7 +235,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel) {
                         }
                     } else {
                         Box(
-                            Modifier.fillMaxWidth().height(52.dp).clip(CircleShape).background(Color(0xFF3A3A3C)).clickable {
+                            Modifier.fillMaxWidth().height(52.dp).clip(CircleShape).background(Color(0xFF242426)).clickable {
                                 scope.launch { lift.animateTo(1f, tween(460)) }
                             },
                             contentAlignment = Alignment.Center,
@@ -258,16 +259,21 @@ private fun TapePage(state: DeskState, vm: MoonViewModel) {
                                     }.padding(vertical = 10.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    Box(Modifier.size(44.dp).clip(CircleShape).background(Color.White), contentAlignment = Alignment.Center) {
+                                    Box(Modifier.size(44.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHigh), contentAlignment = Alignment.Center) {
                                         if (hit.image.isNotBlank()) AsyncImage(model = hit.image, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                                        else Text(hit.symbol.take(1), color = Color.Black)
+                                        else Text(hit.symbol.take(1), color = Color.White)
                                     }
                                     Spacer(Modifier.width(12.dp))
                                     Column(Modifier.weight(1f)) {
                                         Text(hit.name, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         Text(hit.symbol.uppercase(), color = sub, fontSize = 13.sp)
                                     }
-                                    Text(spotLabel(hit.price, currency), color = Color.White)
+                                    MiniSpark(hit.spark, hit.change24h >= 0, Modifier.width(56.dp).height(32.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    Column(Modifier.width(84.dp), horizontalAlignment = Alignment.End) {
+                                        Text(CompactMoney.price(hit.price, currency, 4), color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text((if (hit.change24h >= 0) "↗ " else "↘ ") + String.format("%.2f%%", kotlin.math.abs(hit.change24h)), color = if (hit.change24h >= 0) Color(0xFF3DDC84) else Color(0xFFFF6B81), fontSize = 12.sp, maxLines = 1)
+                                    }
                                 }
                             }
                         }
@@ -307,7 +313,7 @@ private fun SearchField(value: String, onScan: (() -> Unit)?, onChange: (String)
                 .weight(1f)
                 .height(52.dp)
                 .clip(CircleShape)
-                .background(Color(0xFF3A3A3C)),
+                .background(Color(0xFF242426)),
         ) {
             Icon(Icons.Outlined.Search, contentDescription = null, tint = Color.White, modifier = Modifier.align(Alignment.CenterStart).padding(start = 16.dp).size(20.dp))
             BasicTextField(
@@ -354,8 +360,10 @@ private fun WatchedRow(quote: QuoteEntity, currency: String, sub: Color, onRemov
             Modifier
                 .fillMaxWidth()
                 .offset { androidx.compose.ui.unit.IntOffset(drag.roundToInt(), 0) }
+                .shadow(8.dp, RoundedCornerShape(28.dp), clip = false)
                 .clip(RoundedCornerShape(28.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f), RoundedCornerShape(28.dp))
                 .padding(horizontal = 12.dp, vertical = 12.dp)
                 .pointerInput(quote.coinId) {
                     detectHorizontalDragGestures(
@@ -475,6 +483,14 @@ private fun QuoteRow(quote: QuoteEntity, currency: String, onRemove: () -> Unit)
 
 @Composable
 private fun StudioPage(state: DeskState, vm: MoonViewModel) {
+    val settings = state.settings
+    val slider = parseHex(settings.sliderColor)
+    val sub = parseHex(settings.subtextColor)
+    ThinSlider("Transparency", (1f - settings.widgetAlpha) * 100f, 0f..85f, slider, sub) { value ->
+        val alpha = (1f - value / 100f).coerceIn(0.15f, 1f)
+        vm.patch { it.copy(widgetAlpha = alpha) }
+        state.widgets.firstOrNull()?.let { vm.updateWidgetConfig(it.copy(alpha = alpha)) }
+    }
     var pendingId by remember { mutableIntStateOf(-1) }
     val picker = rememberLauncherForActivityResult(PickVisualMedia()) { uri ->
         val config = state.widgets.find { it.appWidgetId == pendingId }
@@ -489,7 +505,8 @@ private fun StudioPage(state: DeskState, vm: MoonViewModel) {
         Box(
             Modifier
                 .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = config.alpha), RoundedCornerShape(state.settings.radiusDp.dp))
+                .border(1.dp, parseHex(settings.widgetBorder), RoundedCornerShape(state.settings.radiusDp.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = settings.widgetAlpha), RoundedCornerShape(state.settings.radiusDp.dp))
                 .padding(16.dp),
         ) {
             if (!config.backgroundPath.isNullOrBlank()) {
@@ -510,12 +527,6 @@ private fun StudioPage(state: DeskState, vm: MoonViewModel) {
                 snap.lines.forEach { Text("${it.first}  ${it.second}") }
             }
         }
-        Text("Transparency ${((1f - config.alpha) * 100).toInt()}%")
-        Slider(
-            value = 1f - config.alpha,
-            onValueChange = { vm.updateWidgetConfig(config.copy(alpha = (1f - it).coerceIn(0.15f, 1f))) },
-            valueRange = 0f..0.85f,
-        )
         if (config.kind == WidgetKinds.TILE) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Spot price instead of cap")
@@ -721,6 +732,13 @@ private fun SettingsPage(state: DeskState, vm: MoonViewModel, menu: String, onMe
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                 Text("Material You", color = Color.White)
                 Switch(checked = settings.materialYou, onCheckedChange = { checked -> vm.patch { it.copy(materialYou = checked) } })
+            }
+            Text("Widget outline", color = Color.White)
+            ColorPicker(settings.widgetBorder) { value -> vm.patch { it.copy(widgetBorder = value) } }
+            ThinSlider("Widget transparency", (1f - settings.widgetAlpha) * 100f, 0f..85f, slider, sub) { value ->
+                val alpha = (1f - value / 100f).coerceIn(0.15f, 1f)
+                vm.patch { it.copy(widgetAlpha = alpha) }
+                state.widgets.firstOrNull()?.let { vm.updateWidgetConfig(it.copy(alpha = alpha)) }
             }
             Text("Slider color", color = Color.White)
             ColorPicker(settings.sliderColor) { value -> vm.patch { it.copy(sliderColor = value) } }

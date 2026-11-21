@@ -31,6 +31,8 @@ data class UserSettings(
     val tapLabel: String = "",
     val sliderColor: String = "#E6E6E6",
     val subtextColor: String = "#8E8E93",
+    val widgetAlpha: Float = 0.58f,
+    val widgetBorder: String = "#D0BCFF",
 )
 
 class SettingsStore(private val context: Context) {
@@ -54,6 +56,8 @@ class SettingsStore(private val context: Context) {
             tapLabel = prefs[Keys.tapLabel] ?: "",
             sliderColor = prefs[Keys.sliderColor] ?: "#E6E6E6",
             subtextColor = prefs[Keys.subtextColor] ?: "#8E8E93",
+            widgetAlpha = prefs[Keys.widgetAlpha] ?: 0.58f,
+            widgetBorder = prefs[Keys.widgetBorder] ?: "#D0BCFF",
         )
     }
 
@@ -79,6 +83,8 @@ class SettingsStore(private val context: Context) {
                     tapLabel = prefs[Keys.tapLabel] ?: "",
                     sliderColor = prefs[Keys.sliderColor] ?: "#E6E6E6",
                     subtextColor = prefs[Keys.subtextColor] ?: "#8E8E93",
+                    widgetAlpha = prefs[Keys.widgetAlpha] ?: 0.58f,
+                    widgetBorder = prefs[Keys.widgetBorder] ?: "#D0BCFF",
                 ),
             )
             prefs[Keys.currency] = next.currency
@@ -99,6 +105,8 @@ class SettingsStore(private val context: Context) {
             prefs[Keys.tapLabel] = next.tapLabel
             prefs[Keys.sliderColor] = next.sliderColor
             prefs[Keys.subtextColor] = next.subtextColor
+            prefs[Keys.widgetAlpha] = next.widgetAlpha
+            prefs[Keys.widgetBorder] = next.widgetBorder
         }
     }
 
@@ -121,5 +129,7 @@ class SettingsStore(private val context: Context) {
         val tapLabel = stringPreferencesKey("tap_label")
         val sliderColor = stringPreferencesKey("slider_color")
         val subtextColor = stringPreferencesKey("subtext_color")
+        val widgetAlpha = floatPreferencesKey("widget_alpha")
+        val widgetBorder = stringPreferencesKey("widget_border")
     }
 }

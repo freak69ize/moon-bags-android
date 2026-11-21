@@ -61,8 +61,9 @@ class MarketRepository(
                 symbol = hit.symbol.uppercase(),
                 price = row?.currentPrice ?: hit.price,
                 marketCap = row?.marketCap ?: hit.marketCap,
-                image = row?.image ?: hit.image,
+                image = row?.image ?: hit.large.ifBlank { hit.thumb }.ifBlank { hit.image },
                 change24h = row?.change24h ?: hit.change24h,
+                spark = row?.sparkline?.price?.joinToString(",") { it.toString() }.orEmpty(),
             )
         }
         (memes + priced).distinctBy { it.id }.take(12)

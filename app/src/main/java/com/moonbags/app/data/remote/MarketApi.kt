@@ -49,7 +49,10 @@ data class SearchCoinDto(
     val marketCap: Double = 0.0,
     val price: Double = 0.0,
     val image: String = "",
+    @SerialName("thumb") val thumb: String = "",
+    @SerialName("large") val large: String = "",
     val change24h: Double = 0.0,
+    val spark: String = "",
 )
 
 @Serializable
