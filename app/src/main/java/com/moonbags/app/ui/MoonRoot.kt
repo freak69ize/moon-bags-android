@@ -208,7 +208,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
                     }
                 }
                 rows.forEach { quote ->
-                    WatchedRow(quote, currency, sub) {
+                    WatchedRow(quote, currency, sub, parseHex(state.settings.cardColor)) {
                         vm.patch { it.copy(watchIds = watch.filterNot { id -> id == quote.coinId }.joinToString(",")) }
                     }
                 }
@@ -361,7 +361,7 @@ private fun SearchField(value: String, pill: Color, borderAlpha: Float, onScan: 
 }
 
 @Composable
-private fun WatchedRow(quote: QuoteEntity, currency: String, sub: Color, onRemove: () -> Unit) {
+private fun WatchedRow(quote: QuoteEntity, currency: String, sub: Color, card: Color, onRemove: () -> Unit) {
     var drag by remember(quote.coinId) { mutableFloatStateOf(0f) }
     val up = quote.change24h >= 0
     Box(Modifier.fillMaxWidth()) {
@@ -381,7 +381,7 @@ private fun WatchedRow(quote: QuoteEntity, currency: String, sub: Color, onRemov
                 .offset { androidx.compose.ui.unit.IntOffset(drag.roundToInt(), 0) }
                 .shadow(10.dp, RoundedCornerShape(28.dp), ambientColor = Color.Black.copy(alpha = 0.45f), spotColor = Color.Black.copy(alpha = 0.45f))
                 .clip(RoundedCornerShape(28.dp))
-                .background(parseHex(state.settings.cardColor))
+                .background(card)
                 .padding(horizontal = 12.dp, vertical = 12.dp)
                 .pointerInput(quote.coinId) {
                     detectHorizontalDragGestures(
