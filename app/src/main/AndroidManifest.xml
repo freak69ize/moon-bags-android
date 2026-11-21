@@ -46,6 +46,7 @@
         <receiver
             android:name=".widget.TotalMarketCapReceiver"
             android:exported="true"
+            android:theme="@style/Theme.MoonBags.Widget"
             android:label="@string/widget_mcap">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -58,6 +59,7 @@
         <receiver
             android:name=".widget.SingleCoinReceiver"
             android:exported="true"
+            android:theme="@style/Theme.MoonBags.Widget"
             android:label="@string/widget_tile">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -70,6 +72,7 @@
         <receiver
             android:name=".widget.PillReceiver"
             android:exported="true"
+            android:theme="@style/Theme.MoonBags.Widget"
             android:label="@string/widget_pill">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -82,6 +85,7 @@
         <receiver
             android:name=".widget.SparklineReceiver"
             android:exported="true"
+            android:theme="@style/Theme.MoonBags.Widget"
             android:label="@string/widget_spark">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -94,6 +98,7 @@
         <receiver
             android:name=".widget.WatchlistReceiver"
             android:exported="true"
+            android:theme="@style/Theme.MoonBags.Widget"
             android:label="@string/widget_watch">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -106,6 +111,7 @@
         <receiver
             android:name=".widget.PortfolioReceiver"
             android:exported="true"
+            android:theme="@style/Theme.MoonBags.Widget"
             android:label="@string/widget_book">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />

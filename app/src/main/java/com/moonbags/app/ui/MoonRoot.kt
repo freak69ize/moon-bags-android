@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.offset
@@ -363,17 +364,19 @@ private fun SearchField(value: String, pill: Color, borderAlpha: Float, onScan: 
 @Composable
 private fun WatchedRow(quote: QuoteEntity, currency: String, sub: Color, card: Color, onRemove: () -> Unit) {
     var drag by remember(quote.coinId) { mutableFloatStateOf(0f) }
+    val reveal = with(androidx.compose.ui.platform.LocalDensity.current) { 96.dp.toPx() }
     val up = quote.change24h >= 0
-    Box(Modifier.fillMaxWidth()) {
+    Box(Modifier.fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Min)) {
         Box(
             Modifier
-                .align(Alignment.CenterStart)
-                .size(72.dp)
+                .align(Alignment.CenterEnd)
+                .width(96.dp)
+                .fillMaxHeight()
                 .background(Color(0xFFE10600))
-                .clickable(enabled = drag > 36f, onClick = onRemove),
+                .clickable(enabled = drag < -24f, onClick = onRemove),
             contentAlignment = Alignment.Center,
         ) {
-            if (drag > 36f) Text("Delete", color = Color.White, fontSize = 13.sp)
+            Text("Delete", color = Color.White, fontSize = 14.sp)
         }
         Row(
             Modifier
@@ -385,8 +388,8 @@ private fun WatchedRow(quote: QuoteEntity, currency: String, sub: Color, card: C
                 .padding(horizontal = 12.dp, vertical = 12.dp)
                 .pointerInput(quote.coinId) {
                     detectHorizontalDragGestures(
-                        onDragEnd = { drag = if (drag > 40f) 80f else 0f },
-                        onHorizontalDrag = { _, amount -> drag = (drag + amount).coerceIn(0f, 84f) },
+                        onDragEnd = { drag = if (drag < -reveal * 0.35f) -reveal else 0f },
+                        onHorizontalDrag = { _, amount -> drag = (drag + amount).coerceIn(-reveal, 0f) },
                     )
                 },
             verticalAlignment = Alignment.CenterVertically,
@@ -528,18 +531,58 @@ private fun StudioPage(state: DeskState, vm: MoonViewModel) {
     val settings = state.settings
     val slider = parseHex(settings.sliderColor)
     val sub = parseHex(settings.subtextColor)
-    ThinSlider("Transparency", (1f - settings.widgetAlpha) * 100f, 0f..100f, slider, sub) { value ->
-        val alpha = (1f - value / 100f).coerceIn(0f, 1f)
-        vm.patch { it.copy(widgetAlpha = alpha) }
-        state.widgets.firstOrNull()?.let { vm.updateWidgetConfig(it.copy(alpha = alpha)) }
-    }
+    var pickingApp by remember { mutableStateOf(false) }
     var pendingId by remember { mutableIntStateOf(-1) }
     val picker = rememberLauncherForActivityResult(PickVisualMedia()) { uri ->
-        val config = state.widgets.find { it.appWidgetId == pendingId }
+        val config = state.widgets.find { it.appWidgetId == pendingId } ?: state.widgets.firstOrNull()
         if (uri != null && config != null) vm.importWidgetBackground(config, uri)
     }
+    ToneControl("Widget color", settings.widgetBorder) { value -> vm.patch { it.copy(widgetBorder = value) } }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Text("Tint background", color = Color.White)
+        Switch(checked = settings.widgetTint, onCheckedChange = { checked -> vm.patch { it.copy(widgetTint = checked) } })
+    }
+    ThinSlider("Transparency", (1f - settings.widgetAlpha) * 100f, 0f..100f, slider, sub) { value ->
+        vm.patch { it.copy(widgetAlpha = (1f - value / 100f).coerceIn(0f, 1f)) }
+    }
+    Button(onClick = { pickingApp = true }, modifier = Modifier.fillMaxWidth()) {
+        Text(if (settings.tapLabel.isBlank()) "Widget tap opens nothing" else "Widget tap opens ${settings.tapLabel}")
+    }
+    if (pickingApp) {
+        AppPicker(onClose = { pickingApp = false }, onPick = { pkg, label ->
+            vm.patch { it.copy(tapPackage = pkg, tapLabel = label) }
+            pickingApp = false
+        })
+    }
+    Text("PNG only. The picture and transparency update the home screen widgets.", color = Color(0xFF8E8E93), fontSize = 12.sp)
+    val target = state.widgets.firstOrNull()
+    if (target != null) {
+        if (!target.backgroundPath.isNullOrBlank()) {
+            TextButton(onClick = { vm.updateWidgetConfig(target.copy(backgroundPath = null)) }) { Text("Remove background", color = Color.White) }
+        }
+        OutlinedButton(
+            onClick = {
+                pendingId = target.appWidgetId
+                picker.launch(PickVisualMediaRequest(PickVisualMedia.SingleMimeType("image/png")))
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Add custom background") }
+        Button(
+            onClick = { vm.updateWidgetConfig(target.copy(acrylic = !target.acrylic, backgroundPath = if (target.acrylic) target.backgroundPath else null)) },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text(if (target.acrylic) "Acrylic background on" else "Acrylic background") }
+        if (target.acrylic) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("Black" to Triple(0f, 0f, 0.08f), "Red" to Triple(4f, 0.72f, 0.32f), "Blue" to Triple(214f, 0.7f, 0.32f), "Green" to Triple(142f, 0.55f, 0.28f)).forEach { (name, tone) ->
+                    FilterChip(selected = false, onClick = { vm.updateWidgetConfig(target.copy(acrylicHue = tone.first, acrylicSat = tone.second, acrylicLight = tone.third)) }, label = { Text(name) })
+                }
+            }
+            ThinSlider("Hue", target.acrylicHue, 0f..360f, slider, sub) { vm.updateWidgetConfig(target.copy(acrylicHue = it, acrylicSat = if (target.acrylicSat == 0f) 0.6f else target.acrylicSat)) }
+            ThinSlider("Lighter or darker", target.acrylicLight, 0.04f..0.8f, slider, sub) { vm.updateWidgetConfig(target.copy(acrylicLight = it)) }
+        }
+    }
     if (state.widgets.isEmpty()) {
-        Text("No widgets placed yet. Long-press the home screen, choose Widgets, then Moon Bags.")
+        Text("No widgets on the home screen yet. Long-press the home screen, choose Widgets, then Moon Bags. These settings apply as soon as one is placed.", color = Color.White)
         return
     }
     state.widgets.forEach { config ->
@@ -581,38 +624,9 @@ private fun StudioPage(state: DeskState, vm: MoonViewModel) {
         }
         if (config.kind == WidgetKinds.TILE) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Spot price instead of cap")
+                Text("Spot price instead of cap", color = Color.White)
                 Switch(checked = config.showPrice, onCheckedChange = { vm.updateWidgetConfig(config.copy(showPrice = it)) })
             }
-        }
-        Text("PNG only. GIFs are not used on widgets.", color = Color(0xFF8E8E93), fontSize = 12.sp)
-        if (!config.backgroundPath.isNullOrBlank()) {
-            TextButton(onClick = { vm.updateWidgetConfig(config.copy(backgroundPath = null)) }) { Text("Remove background", color = Color.White) }
-        }
-        OutlinedButton(
-            onClick = {
-                pendingId = config.appWidgetId
-                picker.launch(PickVisualMediaRequest(PickVisualMedia.SingleMimeType("image/png")))
-            },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Add custom background")
-        }
-        Button(
-            onClick = { vm.updateWidgetConfig(config.copy(acrylic = !config.acrylic, backgroundPath = if (config.acrylic) config.backgroundPath else null)) },
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text(if (config.acrylic) "Acrylic background on" else "Acrylic background") }
-        if (config.acrylic) {
-            val slider = parseHex(state.settings.sliderColor)
-            val sub = parseHex(state.settings.subtextColor)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf("Black" to Triple(0f, 0f, 0.08f), "Red" to Triple(4f, 0.72f, 0.32f), "Blue" to Triple(214f, 0.7f, 0.32f), "Green" to Triple(142f, 0.55f, 0.28f)).forEach { (name, tone) ->
-                    FilterChip(selected = false, onClick = { vm.updateWidgetConfig(config.copy(acrylicHue = tone.first, acrylicSat = tone.second, acrylicLight = tone.third)) }, label = { Text(name) })
-                }
-            }
-            ThinSlider("Hue", config.acrylicHue, 0f..360f, slider, sub) { vm.updateWidgetConfig(config.copy(acrylicHue = it, acrylicSat = if (config.acrylicSat == 0f) 0.6f else config.acrylicSat)) }
-            ThinSlider("Lighter or darker", config.acrylicLight, 0.04f..0.8f, slider, sub) { vm.updateWidgetConfig(config.copy(acrylicLight = it)) }
-            Box(Modifier.fillMaxWidth().height(72.dp).clip(RoundedCornerShape(18.dp)).background(Color.hsl(config.acrylicHue, config.acrylicSat.coerceIn(0f, 1f), config.acrylicLight.coerceIn(0f, 1f))))
         }
     }
 }
@@ -788,24 +802,14 @@ private fun SettingsPage(state: DeskState, vm: MoonViewModel, menu: String, onMe
             ThinSlider("Pill border", settings.pillBorderAlpha * 100f, 0f..80f, slider, sub) { value ->
                 vm.patch { it.copy(pillBorderAlpha = (value / 100f).coerceIn(0f, 0.8f)) }
             }
-            ToneControl("Widget outline", settings.widgetBorder) { value -> vm.patch { it.copy(widgetBorder = value) } }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Widget tint", color = Color.White)
-                Switch(checked = settings.widgetTint, onCheckedChange = { checked ->
-                    vm.patch { it.copy(widgetTint = checked) }
-                    state.widgets.firstOrNull()?.let { vm.updateWidgetConfig(it) }
-                })
-            }
-            ThinSlider("Widget transparency", (1f - settings.widgetAlpha) * 100f, 0f..100f, slider, sub) { value ->
-                val alpha = (1f - value / 100f).coerceIn(0f, 1f)
-                vm.patch { it.copy(widgetAlpha = alpha) }
-                state.widgets.firstOrNull()?.let { vm.updateWidgetConfig(it.copy(alpha = alpha)) }
-            }
             ToneControl("Slider color", settings.sliderColor) { value -> vm.patch { it.copy(sliderColor = value) } }
             ToneControl("Subtext color", settings.subtextColor) { value -> vm.patch { it.copy(subtextColor = value) } }
             ThinSlider("Corners", settings.radiusDp.toFloat(), 8f..32f, slider, sub) { value -> vm.patch { it.copy(radiusDp = value.toInt()) } }
             ThinSlider("Type", settings.fontScale, 0.9f..1.2f, slider, sub) { value -> vm.patch { it.copy(fontScale = value) } }
             MediaPick("Settings background") { uri -> vm.importMedia(uri, "settings") { current, path -> current.copy(settingsPath = path) } }
+            if (!settings.settingsPath.isNullOrBlank()) {
+                TextButton(onClick = { vm.patch { it.copy(settingsPath = null) } }) { Text("Remove background", color = Color.White) }
+            }
         }
         if (menu == "splash") {
             ThinSlider("Splash seconds", settings.splashSeconds.toFloat(), 1f..5f, slider, sub) { value -> vm.patch { it.copy(splashSeconds = value.toInt().coerceIn(1, 5)) } }

@@ -232,8 +232,8 @@ private fun parseSpark(raw: String?): List<Double> {
 }
 
 fun widgetPlate(image: Bitmap?, tint: Int, alpha: Float, tintOn: Boolean): Bitmap {
-    val width = 640
-    val height = 360
+    val width = 360
+    val height = 200
     val out = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(out)
     val radius = 56f
@@ -276,8 +276,8 @@ fun widgetPlate(image: Bitmap?, tint: Int, alpha: Float, tintOn: Boolean): Bitma
 }
 
 fun sparkBitmap(values: List<Double>, up: Boolean): Bitmap {
-    val width = 480
-    val height = 220
+    val width = 280
+    val height = 120
     val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
     if (values.size < 2) return bitmap
     val min = values.min()
@@ -355,7 +355,7 @@ private fun ColumnScope.OpenBody(open: Action?, body: @Composable ColumnScope.()
     if (open == null) {
         Column(modifier) { body() }
     } else {
-        Column(modifier.clickable(open).background(ColorProvider(Color.Transparent))) { body() }
+        Column(modifier.clickable(open)) { body() }
     }
 }
 
