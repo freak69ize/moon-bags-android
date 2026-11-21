@@ -367,16 +367,18 @@ private fun WatchedRow(quote: QuoteEntity, currency: String, sub: Color, card: C
     val reveal = with(androidx.compose.ui.platform.LocalDensity.current) { 96.dp.toPx() }
     val up = quote.change24h >= 0
     Box(Modifier.fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Min)) {
-        Box(
-            Modifier
-                .align(Alignment.CenterEnd)
-                .width(96.dp)
-                .fillMaxHeight()
-                .background(Color(0xFFE10600))
-                .clickable(enabled = drag < -24f, onClick = onRemove),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("Delete", color = Color.White, fontSize = 14.sp)
+        if (drag > 1f) {
+            Box(
+                Modifier
+                    .align(Alignment.CenterStart)
+                    .width(96.dp)
+                    .fillMaxHeight()
+                    .background(Color(0xFFE10600))
+                    .clickable(enabled = drag > 24f, onClick = onRemove),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("Delete", color = Color.White, fontSize = 14.sp)
+            }
         }
         Row(
             Modifier
@@ -388,8 +390,8 @@ private fun WatchedRow(quote: QuoteEntity, currency: String, sub: Color, card: C
                 .padding(horizontal = 12.dp, vertical = 12.dp)
                 .pointerInput(quote.coinId) {
                     detectHorizontalDragGestures(
-                        onDragEnd = { drag = if (drag < -reveal * 0.35f) -reveal else 0f },
-                        onHorizontalDrag = { _, amount -> drag = (drag + amount).coerceIn(-reveal, 0f) },
+                        onDragEnd = { drag = if (drag > reveal * 0.35f) reveal else 0f },
+                        onHorizontalDrag = { _, amount -> drag = (drag + amount).coerceIn(0f, reveal) },
                     )
                 },
             verticalAlignment = Alignment.CenterVertically,

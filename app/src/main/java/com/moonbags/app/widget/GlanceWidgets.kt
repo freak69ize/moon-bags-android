@@ -232,11 +232,11 @@ private fun parseSpark(raw: String?): List<Double> {
 }
 
 fun widgetPlate(image: Bitmap?, tint: Int, alpha: Float, tintOn: Boolean): Bitmap {
-    val width = 360
-    val height = 200
+    val width = 320
+    val height = 180
     val out = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(out)
-    val radius = 56f
+    val radius = 16f
     val bounds = android.graphics.RectF(2f, 2f, width - 2f, height - 2f)
     val clip = Path().apply { addRoundRect(bounds, radius, radius, Path.Direction.CW) }
     val strength = alpha.coerceIn(0f, 1f)
@@ -272,7 +272,12 @@ fun widgetPlate(image: Bitmap?, tint: Int, alpha: Float, tintOn: Boolean): Bitma
         strokeWidth = 3f
         color = tint
     })
-    return out
+    return out.freeze()
+}
+
+private fun Bitmap.freeze(): Bitmap {
+    val software = if (config == Bitmap.Config.HARDWARE) copy(Bitmap.Config.ARGB_8888, false) else this
+    return if (software.isMutable) software.copy(Bitmap.Config.ARGB_8888, false) else software
 }
 
 fun sparkBitmap(values: List<Double>, up: Boolean): Bitmap {
@@ -298,7 +303,7 @@ fun sparkBitmap(values: List<Double>, up: Boolean): Bitmap {
     }
     val canvas = Canvas(bitmap)
     canvas.drawPath(path, stroke)
-    return bitmap
+    return bitmap.freeze()
 }
 
 @Composable
@@ -312,16 +317,11 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = 
             actionStartActivity(intent)
         }
     }
-    Box(modifier = GlanceModifier.fillMaxSize()) {
-        if (snap.background != null) {
-            Image(
-                provider = ImageProvider(snap.background),
-                contentDescription = null,
-                modifier = GlanceModifier.fillMaxSize(),
-                contentScale = ContentScale.FillBounds,
-            )
-        }
-        Column(modifier = GlanceModifier.fillMaxSize().padding(10.dp).background(ColorProvider(Color.Transparent))) {
+    val plate = snap.background?.freeze()
+    val tapped = if (open != null) GlanceModifier.fillMaxSize().clickable(open) else GlanceModifier.fillMaxSize()
+    val rooted = if (plate != null) tapped.background(ImageProvider(plate), ContentScale.FillBounds) else tapped
+    Box(modifier = rooted) {
+        Column(modifier = GlanceModifier.fillMaxSize().padding(18.dp)) {
             if (showTitle) {
             Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 if (snap.title.isNotBlank()) {
@@ -344,19 +344,14 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = 
                 )
             }
             }
-            OpenBody(open, body)
+            OpenBody(body)
         }
     }
 }
 
 @Composable
-private fun ColumnScope.OpenBody(open: Action?, body: @Composable ColumnScope.() -> Unit) {
-    val modifier = GlanceModifier.fillMaxWidth().defaultWeight()
-    if (open == null) {
-        Column(modifier) { body() }
-    } else {
-        Column(modifier.clickable(open)) { body() }
-    }
+private fun ColumnScope.OpenBody(body: @Composable ColumnScope.() -> Unit) {
+    Column(GlanceModifier.fillMaxWidth().defaultWeight()) { body() }
 }
 
 private fun refreshClick() = actionRunCallback<RefreshAction>()
@@ -511,7 +506,9 @@ suspend fun updateWidget(context: Context, kind: String, appWidgetId: Int) {
 
 suspend fun updateAllWidgets(context: Context) {
     listOf(WidgetKinds.MCAP, WidgetKinds.TILE, WidgetKinds.PILL, WidgetKinds.SPARK, WidgetKinds.WATCH, WidgetKinds.BOOK)
-        .forEach { widgetFor(it).updateAll(context) }
+        .forEach { kind ->
+            runCatching { widgetFor(kind).updateAll(context) }
+        }
 }
 
 fun widgetFor(kind: String): GlanceAppWidget = when (kind) {

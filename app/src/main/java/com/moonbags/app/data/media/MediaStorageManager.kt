@@ -44,7 +44,7 @@ class MediaStorageManager(private val context: Context) {
         val file = File(path)
         if (!file.exists()) return null
         return try {
-            if (Build.VERSION.SDK_INT >= 28) {
+            val decoded = if (Build.VERSION.SDK_INT >= 28) {
                 val source = ImageDecoder.createSource(file)
                 ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
                     val largest = max(info.size.width, info.size.height).coerceAtLeast(1)
@@ -58,8 +58,10 @@ class MediaStorageManager(private val context: Context) {
             } else {
                 decodeSampled(file, maxPx)
             }
+            val software = if (decoded != null && decoded.config == Bitmap.Config.HARDWARE) decoded.copy(Bitmap.Config.ARGB_8888, false) else decoded
+            software ?: decodeSampled(file, maxPx)
         } catch (_: Exception) {
-            null
+            decodeSampled(file, maxPx)
         }
     }
 
