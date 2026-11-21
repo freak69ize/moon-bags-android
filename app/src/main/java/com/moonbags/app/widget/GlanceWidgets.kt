@@ -44,6 +44,7 @@ import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
 import androidx.glance.layout.padding
 import androidx.glance.layout.size
+import androidx.glance.layout.width
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextAlign
@@ -296,29 +297,29 @@ private fun Bitmap.freeze(): Bitmap {
     return if (software.isMutable) software.copy(Bitmap.Config.ARGB_8888, false) else software
 }
 
-fun sparkBitmap(values: List<Double>, up: Boolean): Bitmap {
-    val width = 280
-    val height = 120
-    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-    if (values.size < 2) return bitmap
+fun sparkBitmap(values: List<Double>, up: Boolean, width: Int = 280, height: Int = 120, strokePx: Float = 3.5f): Bitmap {
+    val bitmap = Bitmap.createBitmap(width.coerceAtLeast(8), height.coerceAtLeast(8), Bitmap.Config.ARGB_8888)
+    if (values.size < 2) return bitmap.freeze()
     val min = values.min()
     val max = values.max().let { if (it == min) it + 1 else it }
     val color = if (up) 0xFF3DDC84.toInt() else 0xFFFF4D4D.toInt()
     val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         this.color = color
         style = Paint.Style.STROKE
-        strokeWidth = 3.5f
+        strokeWidth = strokePx
         strokeJoin = Paint.Join.ROUND
         strokeCap = Paint.Cap.ROUND
     }
+    val pad = strokePx + 1f
+    val innerW = (bitmap.width - pad * 2).coerceAtLeast(1f)
+    val innerH = (bitmap.height - pad * 2).coerceAtLeast(1f)
     val path = Path()
     values.forEachIndexed { index, value ->
-        val x = index / (values.size - 1f) * width
-        val y = ((1f - ((value - min) / (max - min)).toFloat()) * (height - 8f)) + 4f
+        val x = pad + index / (values.size - 1f) * innerW
+        val y = pad + ((1f - ((value - min) / (max - min)).toFloat()) * innerH)
         if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
     }
-    val canvas = Canvas(bitmap)
-    canvas.drawPath(path, stroke)
+    Canvas(bitmap).drawPath(path, stroke)
     return bitmap.freeze()
 }
 
@@ -396,10 +397,26 @@ class TotalMarketCapWidget : GlanceAppWidget() {
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val snap = WidgetSnapshots.load(context, id, WidgetKinds.MCAP)
-        val chart = sparkBitmap(snap.spark, snap.up)
         provideContent {
             val height = LocalSize.current.height
+            val density = LocalContext.current.resources.displayMetrics.density
             val open = launchAction(LocalContext.current, snap.tapPackage)
+            val priceSp = when {
+                height < 80.dp -> 18f
+                height < 150.dp -> 28f
+                else -> 40f
+            }
+            val chartWidth = maxOf(
+                snap.primary.length * priceSp * 0.62f,
+                (snap.secondary + " 24h").length * 13f * 0.56f,
+            ).coerceIn(96f, 220f).dp
+            val chart = sparkBitmap(
+                snap.spark,
+                snap.up,
+                (chartWidth.value * density).toInt(),
+                (28f * density).toInt(),
+                2f,
+            )
             Chrome(snap, showTitle = false, tapBody = false) {
                 Column(modifier = GlanceModifier.fillMaxWidth()) {
                     Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -429,7 +446,7 @@ class TotalMarketCapWidget : GlanceAppWidget() {
                     )
                 }
                 if (snap.spark.size > 1) {
-                    val chartMod = GlanceModifier.fillMaxWidth().defaultWeight()
+                    val chartMod = GlanceModifier.width(chartWidth).height(28.dp).padding(top = 2.dp)
                     Image(
                         provider = ImageProvider(chart),
                         contentDescription = "Market trend",
