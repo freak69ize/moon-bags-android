@@ -427,7 +427,14 @@ class MarketRepository(
     }.getOrNull()
 
     private fun cmc(url: String): String {
-        val request = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").header("Accept", "application/json").get().build()
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", "Mozilla/5.0")
+            .header("Accept", "application/json")
+            .header("Cache-Control", "no-cache")
+            .header("Pragma", "no-cache")
+            .get()
+            .build()
         HttpClients.okHttp.newCall(request).execute().use { response ->
             val text = response.body?.string().orEmpty()
             if (!response.isSuccessful) error(text.ifBlank { "CoinMarketCap ${response.code}" })

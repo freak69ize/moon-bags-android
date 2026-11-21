@@ -50,8 +50,6 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextAlign
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.WorkManager
 import com.moonbags.app.MoonBagsApp
 import com.moonbags.app.R
 import com.moonbags.app.data.local.GlobalEntity
@@ -60,7 +58,6 @@ import com.moonbags.app.data.local.MoonDatabase
 import com.moonbags.app.data.local.QuoteEntity
 import com.moonbags.app.data.local.WidgetConfigEntity
 import com.moonbags.app.domain.CompactMoney
-import com.moonbags.app.work.PriceSyncWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -102,6 +99,7 @@ data class WidgetSnap(
     val acrylicLight: Float = 0.18f,
     val border: Color = Color(0xFFD0BCFF),
     val fill: Color = Color.Transparent,
+    val refreshNote: String = "",
 )
 
 private val Paper = Color(0xFFEFE8DC)
@@ -145,6 +143,7 @@ object WidgetSnapshots {
                 acrylicLight = config.acrylicLight,
                 border = runCatching { Color(android.graphics.Color.parseColor(settings.widgetBorder)) }.getOrDefault(Color(0xFFD0BCFF)),
                 fill = runCatching { Color(android.graphics.Color.parseColor(settings.widgetFill)) }.getOrDefault(Color.Transparent),
+                refreshNote = readRefreshNote(context),
             )
     }
 }
@@ -367,8 +366,11 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = 
                     Image(
                         provider = ImageProvider(R.drawable.ic_refresh),
                         contentDescription = "Refresh",
-                        modifier = GlanceModifier.size(28.dp).clickable(refreshClick()),
+                        modifier = refreshTarget(),
                     )
+                    if (snap.refreshNote.isNotBlank()) {
+                        Text(snap.refreshNote, style = TextStyle(color = ColorProvider(Paper), fontSize = 10.sp))
+                    }
                 }
             }
             OpenBody(if (tapBody) open else null, body)
@@ -388,6 +390,8 @@ private fun ColumnScope.OpenBody(open: Action?, body: @Composable ColumnScope.()
     val modifier = GlanceModifier.fillMaxWidth().defaultWeight()
     if (open == null) Column(modifier) { body() } else Column(modifier.clickable(open)) { body() }
 }
+
+private fun refreshTarget() = GlanceModifier.size(44.dp).background(ColorProvider(Color.Transparent)).clickable(refreshClick())
 
 private fun refreshClick() = actionRunCallback<RefreshAction>()
 private fun privacyClick() = actionRunCallback<TogglePrivacyAction>()
@@ -433,10 +437,13 @@ class TotalMarketCapWidget : GlanceAppWidget() {
                                 fontWeight = FontWeight.Bold,
                             ),
                         )
+                        if (snap.refreshNote.isNotBlank()) {
+                            Text(snap.refreshNote, style = TextStyle(color = ColorProvider(Paper), fontSize = 10.sp))
+                        }
                         Image(
                             provider = ImageProvider(R.drawable.ic_refresh),
-                            contentDescription = "Refresh",
-                            modifier = GlanceModifier.size(28.dp).clickable(refreshClick()),
+                            contentDescription = if (snap.refreshNote.isBlank()) "Refresh" else snap.refreshNote,
+                            modifier = refreshTarget(),
                         )
                     }
                     Text(
@@ -540,7 +547,37 @@ class PortfolioWidget : GlanceAppWidget() {
 
 class RefreshAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
-        WorkManager.getInstance(context).enqueue(OneTimeWorkRequestBuilder<PriceSyncWorker>().build())
+        writeRefresh(context, "busy", 0L)
+        updateAllWidgets(context)
+        try {
+            val graph = (context.applicationContext as MoonBagsApp).graph
+            val settings = graph.settings.flow.first()
+            val ids = settings.watchIds.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            graph.market.refresh(settings.currency, ids)
+            writeRefresh(context, "ok", System.currentTimeMillis())
+        } catch (_: Exception) {
+            writeRefresh(context, "fail", System.currentTimeMillis())
+        }
+        updateAllWidgets(context)
+    }
+}
+
+private const val REFRESH_PREFS = "widget_refresh"
+
+private fun writeRefresh(context: Context, status: String, at: Long) {
+    context.getSharedPreferences(REFRESH_PREFS, Context.MODE_PRIVATE).edit().putString("status", status).putLong("at", at).apply()
+}
+
+private fun readRefreshNote(context: Context): String {
+    val prefs = context.getSharedPreferences(REFRESH_PREFS, Context.MODE_PRIVATE)
+    return when (prefs.getString("status", "idle")) {
+        "busy" -> "Refreshing"
+        "fail" -> "Failed"
+        "ok" -> {
+            val at = prefs.getLong("at", 0L)
+            if (at == 0L) "" else "Updated " + android.text.format.DateFormat.format("h:mm", at)
+        }
+        else -> ""
     }
 }
 

@@ -224,9 +224,15 @@ class MoonViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun importWidgetBackground(config: com.moonbags.app.data.local.WidgetConfigEntity, uri: android.net.Uri) {
-        viewModelScope.launch {
-            val stored = graph.media.import(uri, "widget-${config.appWidgetId}")
-            updateWidgetConfig(config.copy(backgroundPath = stored.path))
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val previous = config.backgroundPath
+                val stored = graph.media.importWidgetPlate(uri, "widget-${config.appWidgetId}")
+                if (!previous.isNullOrBlank() && previous != stored.path) graph.media.delete(previous)
+                updateWidgetConfig(config.copy(backgroundPath = stored.path, acrylic = false))
+            } catch (exception: Exception) {
+                error.value = exception.message ?: "Couldn't save that background"
+            }
         }
     }
 
