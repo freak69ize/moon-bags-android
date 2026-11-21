@@ -31,8 +31,9 @@ data class UserSettings(
     val tapLabel: String = "",
     val sliderColor: String = "#E6E6E6",
     val subtextColor: String = "#8E8E93",
-    val widgetAlpha: Float = 0.58f,
+    val widgetAlpha: Float = 0f,
     val widgetBorder: String = "#D0BCFF",
+    val widgetFill: String = "#00000000",
     val cardColor: String = "#3A3842",
     val searchPillColor: String = "#242426",
     val searchBarColor: String = "#000000",
@@ -62,8 +63,9 @@ class SettingsStore(private val context: Context) {
             tapLabel = prefs[Keys.tapLabel] ?: "",
             sliderColor = prefs[Keys.sliderColor] ?: "#E6E6E6",
             subtextColor = prefs[Keys.subtextColor] ?: "#8E8E93",
-            widgetAlpha = prefs[Keys.widgetAlpha] ?: 0.58f,
+            widgetAlpha = prefs[Keys.widgetAlpha] ?: 0f,
             widgetBorder = prefs[Keys.widgetBorder] ?: "#D0BCFF",
+            widgetFill = prefs[Keys.widgetFill] ?: "#00000000",
             cardColor = prefs[Keys.cardColor] ?: "#3A3842",
             searchPillColor = prefs[Keys.searchPillColor] ?: "#242426",
             searchBarColor = prefs[Keys.searchBarColor] ?: "#000000",
@@ -95,8 +97,9 @@ class SettingsStore(private val context: Context) {
                     tapLabel = prefs[Keys.tapLabel] ?: "",
                     sliderColor = prefs[Keys.sliderColor] ?: "#E6E6E6",
                     subtextColor = prefs[Keys.subtextColor] ?: "#8E8E93",
-                    widgetAlpha = prefs[Keys.widgetAlpha] ?: 0.58f,
+                    widgetAlpha = prefs[Keys.widgetAlpha] ?: 0f,
                     widgetBorder = prefs[Keys.widgetBorder] ?: "#D0BCFF",
+                    widgetFill = prefs[Keys.widgetFill] ?: "#00000000",
                     cardColor = prefs[Keys.cardColor] ?: "#3A3842",
                     searchPillColor = prefs[Keys.searchPillColor] ?: "#242426",
                     searchBarColor = prefs[Keys.searchBarColor] ?: "#000000",
@@ -125,6 +128,7 @@ class SettingsStore(private val context: Context) {
             prefs[Keys.subtextColor] = next.subtextColor
             prefs[Keys.widgetAlpha] = next.widgetAlpha
             prefs[Keys.widgetBorder] = next.widgetBorder
+            prefs[Keys.widgetFill] = next.widgetFill
             prefs[Keys.cardColor] = next.cardColor
             prefs[Keys.searchPillColor] = next.searchPillColor
             prefs[Keys.searchBarColor] = next.searchBarColor
@@ -155,6 +159,7 @@ class SettingsStore(private val context: Context) {
         val subtextColor = stringPreferencesKey("subtext_color")
         val widgetAlpha = floatPreferencesKey("widget_alpha")
         val widgetBorder = stringPreferencesKey("widget_border")
+        val widgetFill = stringPreferencesKey("widget_fill")
         val cardColor = stringPreferencesKey("card_color")
         val searchPillColor = stringPreferencesKey("search_pill_color")
         val searchBarColor = stringPreferencesKey("search_bar_color")

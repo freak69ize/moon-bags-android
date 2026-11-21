@@ -101,7 +101,10 @@ import com.moonbags.app.ui.theme.Down
 import com.moonbags.app.ui.theme.Ink
 import com.moonbags.app.ui.theme.MoonTheme
 import com.moonbags.app.ui.theme.Up
+import com.moonbags.app.data.local.WidgetConfigEntity
+import com.moonbags.app.data.settings.UserSettings
 import com.moonbags.app.widget.WidgetKinds
+import com.moonbags.app.widget.WidgetSnap
 import com.moonbags.app.widget.render
 import kotlinx.coroutines.launch
 import java.io.File
@@ -546,7 +549,23 @@ private fun StudioPage(state: DeskState, vm: MoonViewModel) {
         val config = state.widgets.find { it.appWidgetId == pendingId } ?: state.widgets.firstOrNull()
         if (uri != null && config != null) vm.importWidgetBackground(config, uri)
     }
-    ToneControl("Widget color", settings.widgetBorder) { value -> vm.patch { it.copy(widgetBorder = value) } }
+    ToneControl("Widget outline", settings.widgetBorder) { value -> vm.patch { it.copy(widgetBorder = value) } }
+    ToneControl("Widget background", opaque(settings.widgetFill)) { value ->
+        vm.patch { it.copy(widgetFill = value, widgetAlpha = if (it.widgetAlpha < 0.04f) 0.72f else it.widgetAlpha) }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        listOf("Clear" to null, "Black" to "#000000", "Ink" to "#141414", "Red" to "#E23D3D", "Blue" to "#3AA0FF").forEach { (name, hex) ->
+            FilterChip(
+                selected = false,
+                onClick = {
+                    if (hex == null) vm.patch { it.copy(widgetAlpha = 0f) }
+                    else vm.patch { it.copy(widgetFill = hex, widgetAlpha = if (it.widgetAlpha < 0.04f) 0.72f else it.widgetAlpha) }
+                    state.widgets.firstOrNull()?.let { vm.updateWidgetConfig(it.copy(backgroundPath = null, acrylic = false)) }
+                },
+                label = { Text(name) },
+            )
+        }
+    }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Text("Tint background", color = Color.White)
         Switch(checked = settings.widgetTint, onCheckedChange = { checked -> vm.patch { it.copy(widgetTint = checked) } })
@@ -591,51 +610,71 @@ private fun StudioPage(state: DeskState, vm: MoonViewModel) {
         }
     }
     if (state.widgets.isEmpty()) {
-        Text("No widgets on the home screen yet. Long-press the home screen, choose Widgets, then Moon Bags. These settings apply as soon as one is placed.", color = Color.White)
-        return
+        Text("No widgets on the home screen yet. Long-press the home screen, choose Widgets, then Moon Bags. The background below is what they will use.", color = Color.White)
+    }
+    val previewConfig = state.widgets.firstOrNull()
+    val snap = render(
+        previewConfig ?: com.moonbags.app.data.local.WidgetConfigEntity(0, WidgetKinds.MCAP, "bitcoin", false, null, settings.scrim, false, settings.widgetAlpha),
+        settings.currency,
+        settings.hideBalances,
+        state.global,
+        state.quotes,
+        state.holdings,
+        null,
+    )
+    WidgetPreview(settings, previewConfig, snap)
+    state.widgets.drop(1).forEach { config ->
+        val extra = render(config, settings.currency, settings.hideBalances, state.global, state.quotes, state.holdings, null)
+        WidgetPreview(settings, config, extra)
     }
     state.widgets.forEach { config ->
-        val snap = render(config, state.settings.currency, state.settings.hideBalances, state.global, state.quotes, state.holdings, null)
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(state.settings.radiusDp.dp))
-                .border(1.dp, parseHex(settings.widgetBorder), RoundedCornerShape(state.settings.radiusDp.dp))
-                .background(
-                    if (config.backgroundPath.isNullOrBlank()) {
-                        (if (settings.widgetTint) parseHex(settings.widgetBorder) else Color(0xFF3A3842)).copy(alpha = settings.widgetAlpha)
-                    } else {
-                        Color.Transparent
-                    },
-                    RoundedCornerShape(state.settings.radiusDp.dp),
-                )
-                .padding(16.dp),
-        ) {
-            if (!config.backgroundPath.isNullOrBlank()) {
-                AsyncImage(
-                    model = File(config.backgroundPath),
-                    contentDescription = null,
-                    modifier = Modifier.matchParentSize(),
-                    contentScale = ContentScale.Crop,
-                    alpha = settings.widgetAlpha,
-                )
-                if (settings.widgetTint) {
-                    Box(Modifier.matchParentSize().background(parseHex(settings.widgetBorder).copy(alpha = 0.45f * settings.widgetAlpha)))
-                }
-            }
-            Column {
-                Text(snap.title, color = Brass)
-                Text(snap.primary, style = MaterialTheme.typography.headlineMedium)
-                Text(snap.secondary, color = if (snap.up) Up else Down)
-                TrendLine(snap.spark, snap.up)
-                snap.lines.forEach { Text("${it.first}  ${it.second}") }
-            }
-        }
         if (config.kind == WidgetKinds.TILE) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Spot price instead of cap", color = Color.White)
                 Switch(checked = config.showPrice, onCheckedChange = { vm.updateWidgetConfig(config.copy(showPrice = it)) })
             }
+        }
+    }
+}
+
+private fun opaque(hex: String): String {
+    val raw = hex.removePrefix("#")
+    return if (raw.length >= 8) "#" + raw.takeLast(6) else if (raw.length == 6) "#$raw" else "#000000"
+}
+
+@Composable
+private fun WidgetPreview(settings: UserSettings, config: WidgetConfigEntity?, snap: WidgetSnap) {
+    val shape = RoundedCornerShape(settings.radiusDp.dp)
+    val alpha = settings.widgetAlpha
+    val border = parseHex(settings.widgetBorder)
+    val fill = parseHex(settings.widgetFill)
+    Box(Modifier.fillMaxWidth().height(168.dp)) {
+        Box(Modifier.matchParentSize().clip(shape)) {
+            if (config != null && !config.backgroundPath.isNullOrBlank() && alpha > 0.004f) {
+                AsyncImage(
+                    model = File(config.backgroundPath),
+                    contentDescription = null,
+                    modifier = Modifier.matchParentSize(),
+                    contentScale = ContentScale.Crop,
+                    alpha = alpha,
+                )
+                if (settings.widgetTint) {
+                    Box(Modifier.matchParentSize().background(border.copy(alpha = 0.45f * alpha)))
+                }
+            } else if (config?.acrylic == true && alpha > 0.004f) {
+                val argb = android.graphics.Color.HSVToColor((alpha * 255).toInt(), floatArrayOf(config.acrylicHue, config.acrylicSat.coerceIn(0f, 1f), config.acrylicLight.coerceIn(0f, 1f)))
+                Box(Modifier.matchParentSize().background(Color(argb)))
+            } else if (alpha > 0.004f && fill.alpha > 0.004f) {
+                Box(Modifier.matchParentSize().background(fill.copy(alpha = alpha)))
+            }
+        }
+        Box(Modifier.matchParentSize().border(1.dp, border, shape))
+        Column(Modifier.padding(16.dp)) {
+            Text(snap.title, color = Brass)
+            Text(snap.primary, style = MaterialTheme.typography.headlineMedium, color = Color.White)
+            Text(snap.secondary, color = if (snap.up) Up else Down)
+            TrendLine(snap.spark, snap.up)
+            snap.lines.forEach { Text("${it.first}  ${it.second}", color = Color.White) }
         }
     }
 }

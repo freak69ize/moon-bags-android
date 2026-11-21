@@ -100,6 +100,7 @@ data class WidgetSnap(
     val acrylicSat: Float = 0.55f,
     val acrylicLight: Float = 0.18f,
     val border: Color = Color(0xFFD0BCFF),
+    val fill: Color = Color.Transparent,
 )
 
 private val Paper = Color(0xFFEFE8DC)
@@ -132,7 +133,7 @@ object WidgetSnapshots {
         val holdings = graph.db.holdings().all()
         val raw = graph.media.decodeForWidget(config.backgroundPath, 640)
         val tint = runCatching { android.graphics.Color.parseColor(settings.widgetBorder) }.getOrDefault(0xFF3A3842.toInt())
-        val background = widgetPlate(raw, tint, settings.widgetAlpha, settings.widgetTint)
+        val background = if (raw == null || settings.widgetAlpha <= 0.004f) null else widgetPlate(raw, tint, settings.widgetAlpha, settings.widgetTint)
         return render(config, settings.currency, settings.hideBalances, global, quotes, holdings, background)
             .copy(
                 alpha = settings.widgetAlpha,
@@ -142,6 +143,7 @@ object WidgetSnapshots {
                 acrylicSat = config.acrylicSat,
                 acrylicLight = config.acrylicLight,
                 border = runCatching { Color(android.graphics.Color.parseColor(settings.widgetBorder)) }.getOrDefault(Color(0xFFD0BCFF)),
+                fill = runCatching { Color(android.graphics.Color.parseColor(settings.widgetFill)) }.getOrDefault(Color.Transparent),
             )
     }
 }
@@ -255,42 +257,37 @@ private fun widgetCornerPx(context: Context): Float {
     return 16f * context.resources.displayMetrics.density
 }
 
-fun widgetPlate(image: Bitmap?, tint: Int, alpha: Float, tintOn: Boolean): Bitmap {
+private fun acrylicColor(hue: Float, sat: Float, light: Float, alpha: Float): Color {
+    val argb = android.graphics.Color.HSVToColor(
+        (alpha.coerceIn(0f, 1f) * 255).toInt(),
+        floatArrayOf(hue, sat.coerceIn(0f, 1f), light.coerceIn(0f, 1f)),
+    )
+    return Color(argb)
+}
+
+fun widgetPlate(image: Bitmap, tint: Int, alpha: Float, tintOn: Boolean): Bitmap {
     val width = 320
     val height = 180
     val out = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(out)
-    val radius = 16f
-    val bounds = android.graphics.RectF(2f, 2f, width - 2f, height - 2f)
-    val clip = Path().apply { addRoundRect(bounds, radius, radius, Path.Direction.CW) }
     val strength = alpha.coerceIn(0f, 1f)
-    canvas.save()
-    canvas.clipPath(clip)
-    if (image != null) {
-        val scale = maxOf(width / image.width.toFloat(), height / image.height.toFloat())
-        val drawnWidth = image.width * scale
-        val drawnHeight = image.height * scale
-        val left = (width - drawnWidth) / 2f
-        val top = (height - drawnHeight) / 2f
-        canvas.drawBitmap(
-            image,
-            null,
-            android.graphics.RectF(left, top, left + drawnWidth, top + drawnHeight),
-            Paint(Paint.ANTI_ALIAS_FLAG).apply { this.alpha = (strength * 255).toInt() },
-        )
-        if (tintOn) {
-            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), Paint().apply {
-                color = tint
-                this.alpha = (strength * 0.5f * 255).toInt()
-            })
-        }
-    } else {
-        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = if (tintOn) tint else 0xFF3A3842.toInt()
-            this.alpha = (strength * 255).toInt()
+    val scale = maxOf(width / image.width.toFloat(), height / image.height.toFloat())
+    val drawnWidth = image.width * scale
+    val drawnHeight = image.height * scale
+    val left = (width - drawnWidth) / 2f
+    val top = (height - drawnHeight) / 2f
+    canvas.drawBitmap(
+        image,
+        null,
+        android.graphics.RectF(left, top, left + drawnWidth, top + drawnHeight),
+        Paint(Paint.ANTI_ALIAS_FLAG).apply { this.alpha = (strength * 255).toInt() },
+    )
+    if (tintOn) {
+        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), Paint().apply {
+            color = tint
+            this.alpha = (strength * 0.45f * 255).toInt()
         })
     }
-    canvas.restore()
     return out.freeze()
 }
 
@@ -341,12 +338,13 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = 
     )
     val plate = snap.background?.freeze()
     Box(modifier = GlanceModifier.fillMaxSize().cornerRadius((cornerPx / density).dp)) {
-        val fill = if (plate != null) {
-            GlanceModifier.fillMaxSize().background(ImageProvider(plate), ContentScale.FillBounds)
-        } else {
-            GlanceModifier.fillMaxSize().background(ColorProvider(Color(0xFF3A3842).copy(alpha = snap.alpha.coerceIn(0.15f, 1f))))
+        if (plate != null) {
+            Image(provider = ImageProvider(plate), contentDescription = null, modifier = GlanceModifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
+        } else if (snap.acrylic && snap.alpha > 0.004f) {
+            Box(modifier = GlanceModifier.fillMaxSize().background(ColorProvider(acrylicColor(snap.acrylicHue, snap.acrylicSat, snap.acrylicLight, snap.alpha)))) {}
+        } else if (snap.alpha > 0.004f && snap.fill.alpha > 0.004f) {
+            Box(modifier = GlanceModifier.fillMaxSize().background(ColorProvider(snap.fill.copy(alpha = snap.alpha)))) {}
         }
-        Box(modifier = fill) {}
         Image(provider = ImageProvider(frame), contentDescription = null, modifier = GlanceModifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
         Column(modifier = GlanceModifier.fillMaxSize().padding(16.dp)) {
             if (showTitle) {
