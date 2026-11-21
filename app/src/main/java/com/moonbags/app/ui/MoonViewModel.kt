@@ -54,9 +54,10 @@ class MoonViewModel(app: Application) : AndroidViewModel(app) {
             combine(graph.db.market().observeQuotes(), ticks) { quotes, live ->
                 quotes.map { quote ->
                     val tick = live[quote.symbol.uppercase()] ?: return@map quote
+                    val moved = tick.open > 0 && kotlin.math.abs(tick.price - tick.open) > tick.open * 0.0000005
                     quote.copy(
-                        price = tick.price,
-                        change24h = tick.change,
+                        price = if (tick.price > 0) tick.price else quote.price,
+                        change24h = if (moved) tick.change else quote.change24h,
                         sparkline = if (tick.spark.size > 1) tick.spark.joinToString(",") else quote.sparkline,
                     )
                 }

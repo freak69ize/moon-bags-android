@@ -30,6 +30,7 @@ data class MarketCoinDto(
     val image: String? = null,
     @SerialName("current_price") val currentPrice: Double? = null,
     @SerialName("market_cap") val marketCap: Double? = null,
+    @SerialName("price_change_percentage_24h_in_currency") val changeInCurrency: Double? = null,
     @SerialName("price_change_percentage_24h") val change24h: Double? = null,
     @SerialName("sparkline_in_7d") val sparkline: SparklineDto? = null,
 )

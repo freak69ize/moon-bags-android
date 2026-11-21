@@ -130,7 +130,7 @@ class MarketRepository(
                     name = coin.name,
                     price = overlay?.price ?: coin.currentPrice ?: 0.0,
                     marketCap = caps[symbol] ?: coin.marketCap ?: 0.0,
-                    change24h = overlay?.change ?: coin.change24h ?: 0.0,
+                    change24h = overlay?.change ?: coin.changeInCurrency ?: coin.change24h ?: 0.0,
                     sparkline = coin.sparkline?.price?.joinToString(",") { it.toString() }.orEmpty(),
                     imageUrl = coin.image,
                     currency = fiat,

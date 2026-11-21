@@ -408,10 +408,10 @@ private fun WatchedRow(quote: QuoteEntity, currency: String, sub: Color, card: C
                 Text(quote.name, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(quote.symbol.uppercase(), color = sub, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            MiniSpark(quote.sparkline, up, Modifier.width(64.dp).height(36.dp))
-            Spacer(Modifier.width(8.dp))
-            Column(Modifier.width(86.dp), horizontalAlignment = Alignment.End) {
-                Text(tapePrice(quote.price, currency), color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            MiniSpark(quote.sparkline, up, Modifier.width(44.dp).height(32.dp))
+            Spacer(Modifier.width(6.dp))
+            Column(Modifier.width(108.dp), horizontalAlignment = Alignment.End) {
+                Text(tapePrice(quote.price, currency), color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1, softWrap = false)
                 Text((if (up) "↗ " else "↘ ") + String.format("%.2f%%", kotlin.math.abs(quote.change24h)), color = if (up) Color(0xFF3DDC84) else Color(0xFFFF6B81), fontSize = 13.sp, maxLines = 1)
             }
         }
