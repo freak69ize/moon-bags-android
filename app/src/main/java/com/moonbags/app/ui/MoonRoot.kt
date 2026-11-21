@@ -186,7 +186,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val watch = state.settings.watchIds.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(start = 12.dp, end = 12.dp, top = 64.dp, bottom = 148.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             state.error?.let { Text(it, color = Down) }
             state.quotes.filter { it.coinId in watch }.forEach { quote ->
@@ -354,8 +354,8 @@ private fun WatchedRow(quote: QuoteEntity, currency: String, sub: Color, onRemov
             Modifier
                 .fillMaxWidth()
                 .offset { androidx.compose.ui.unit.IntOffset(drag.roundToInt(), 0) }
-                .clip(RoundedCornerShape(22.dp))
-                .background(Color(0xFF141414))
+                .clip(RoundedCornerShape(28.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                 .padding(horizontal = 12.dp, vertical = 12.dp)
                 .pointerInput(quote.coinId) {
                     detectHorizontalDragGestures(

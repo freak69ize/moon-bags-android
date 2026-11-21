@@ -102,7 +102,7 @@ data class WidgetSnap(
 
 private val Paper = Color(0xFFEFE8DC)
 private val Brass = Color(0xFFD4A24A)
-private val Ink = Color(0xFF0C1016)
+private val Ink = Color(0xFF1D1B20)
 private val UpColor = Color(0xFF3DDC84)
 private val DownColor = Color(0xFFFF4D4D)
 
@@ -274,7 +274,7 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = 
         }
     }
     val veil = Ink.copy(alpha = snap.alpha.coerceIn(0.15f, 1f))
-    Box(modifier = GlanceModifier.fillMaxSize().cornerRadius(22.dp)) {
+    Box(modifier = GlanceModifier.fillMaxSize().cornerRadius(28.dp)) {
         if (snap.background != null) {
             Image(
                 provider = ImageProvider(snap.background),

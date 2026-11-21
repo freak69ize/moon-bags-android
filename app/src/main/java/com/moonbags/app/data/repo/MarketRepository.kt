@@ -118,6 +118,7 @@ class MarketRepository(
         val markets = HttpClients.gecko.markets(fiat, ids)
         val overlays = coinbaseOverlays(markets.map { it.symbol.uppercase() }, fiat)
         val now = System.currentTimeMillis()
+        val caps = cmcCaps()
         db.market().upsertQuotes(
             markets.map { coin ->
                 val symbol = coin.symbol.uppercase()
@@ -127,7 +128,7 @@ class MarketRepository(
                     symbol = symbol,
                     name = coin.name,
                     price = overlay?.price ?: coin.currentPrice ?: 0.0,
-                    marketCap = coin.marketCap ?: 0.0,
+                    marketCap = caps[symbol] ?: coin.marketCap ?: 0.0,
                     change24h = overlay?.change ?: coin.change24h ?: 0.0,
                     sparkline = coin.sparkline?.price?.joinToString(",") { it.toString() }.orEmpty(),
                     imageUrl = coin.image,
@@ -294,13 +295,28 @@ class MarketRepository(
         var usd: JSONObject? = null
         for (index in 0 until quotes.length()) {
             val row = quotes.getJSONObject(index)
-            if (row.optString("name") == "USD") usd = row
+            val name = row.optString("name")
+            val id = row.optInt("cryptoId")
+            if (name.equals("USD", true) || id == 2781) usd = row
         }
-        val row = usd ?: return null
+        val row = usd ?: if (quotes.length() > 0) quotes.getJSONObject(0) else return null
         val cap = row.optDouble("totalMarketCap")
-        if (cap <= 0.0) return null
+        if (!cap.isFinite() || cap < 100_000_000_000.0) return null
         Triple(cap, row.optDouble("totalVolume24H"), row.optDouble("totalMarketCapYesterdayPercentageChange"))
     }.getOrNull()
+
+    private fun cmcCaps(): Map<String, Double> = runCatching {
+        val body = cmc("https://api.coinmarketcap.com/data-api/v3/cryptocurrency/listing?start=1&limit=200&sortBy=market_cap&sortType=desc&convert=USD&cryptoType=all&tagType=all&audited=false")
+        val list = JSONObject(body).getJSONObject("data").getJSONArray("cryptoCurrencyList")
+        buildMap {
+            for (index in 0 until list.length()) {
+                val coin = list.getJSONObject(index)
+                val symbol = coin.optString("symbol").uppercase()
+                val cap = coin.optJSONArray("quotes")?.optJSONObject(0)?.optDouble("marketCap") ?: continue
+                if (symbol.isNotBlank() && cap.isFinite() && cap > 0.0) put(symbol, cap)
+            }
+        }
+    }.getOrDefault(emptyMap())
 
     private fun cmc(url: String): String {
         val request = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").header("Accept", "application/json").get().build()
