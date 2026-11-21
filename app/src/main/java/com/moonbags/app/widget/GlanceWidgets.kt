@@ -235,9 +235,9 @@ private fun parseSpark(raw: String?): List<Double> {
 fun frameBitmap(width: Int, height: Int, color: Int, stroke: Float, radius: Float): Bitmap {
     val out = Bitmap.createBitmap(width.coerceAtLeast(8), height.coerceAtLeast(8), Bitmap.Config.ARGB_8888)
     val canvas = Canvas(out)
-    val inset = stroke / 2f + 4f
+    val inset = stroke / 2f
     val rect = RectF(inset, inset, out.width - inset, out.height - inset)
-    val corner = radius.coerceAtMost(minOf(rect.width(), rect.height()) / 2f)
+    val corner = (radius - inset).coerceAtLeast(0f).coerceAtMost(minOf(rect.width(), rect.height()) / 2f)
     canvas.drawRoundRect(rect, corner, corner, Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = stroke
@@ -245,6 +245,14 @@ fun frameBitmap(width: Int, height: Int, color: Int, stroke: Float, radius: Floa
         strokeJoin = Paint.Join.ROUND
     })
     return out.freeze()
+}
+
+private fun widgetCornerPx(context: Context): Float {
+    if (android.os.Build.VERSION.SDK_INT >= 31) {
+        val id = context.resources.getIdentifier("system_app_widget_background_radius", "dimen", "android")
+        if (id != 0) return context.resources.getDimension(id)
+    }
+    return 16f * context.resources.displayMetrics.density
 }
 
 fun widgetPlate(image: Bitmap?, tint: Int, alpha: Float, tintOn: Boolean): Bitmap {
@@ -323,15 +331,16 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = 
     val open = launchAction(context, snap.tapPackage)
     val size = LocalSize.current
     val density = context.resources.displayMetrics.density
+    val cornerPx = widgetCornerPx(context)
     val frame = frameBitmap(
         (size.width.value * density).toInt(),
         (size.height.value * density).toInt(),
         android.graphics.Color.argb((snap.border.alpha * 255).toInt().coerceIn(0, 255), (snap.border.red * 255).toInt(), (snap.border.green * 255).toInt(), (snap.border.blue * 255).toInt()),
-        2.5f * density,
-        22f * density,
+        1f,
+        cornerPx,
     )
     val plate = snap.background?.freeze()
-    Box(modifier = GlanceModifier.fillMaxSize()) {
+    Box(modifier = GlanceModifier.fillMaxSize().cornerRadius((cornerPx / density).dp)) {
         val fill = if (plate != null) {
             GlanceModifier.fillMaxSize().background(ImageProvider(plate), ContentScale.FillBounds)
         } else {

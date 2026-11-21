@@ -17,6 +17,8 @@
         <item name="android:colorControlHighlight">@android:color/transparent</item>
         <item name="android:colorPressedHighlight">@android:color/transparent</item>
         <item name="android:colorActivatedHighlight">@android:color/transparent</item>
+        <item name="android:selectableItemBackground">@drawable/widget_press_clear</item>
+        <item name="android:selectableItemBackgroundBorderless">@drawable/widget_press_clear</item>
     </style>
 
     <style name="Theme.MoonBags.Splash" parent="Theme.SplashScreen">
