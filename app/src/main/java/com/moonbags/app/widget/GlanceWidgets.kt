@@ -128,7 +128,16 @@ object WidgetSnapshots {
             alpha = 0.7f,
         )
         val global = graph.db.market().global(settings.currency)
-        val quotes = graph.db.market().quotes().filter { it.currency == settings.currency }
+        val stored = graph.db.market().quotes().filter { it.currency == settings.currency }
+        val spots = runCatching { graph.market.freshCmc(settings.currency, stored.map { it.symbol to it.coinId }) }.getOrDefault(emptyMap())
+        val quotes = stored.map { quote ->
+            val spot = spots[quote.symbol.uppercase()] ?: return@map quote
+            if (spot.first <= 0.0) quote else quote.copy(
+                price = spot.first,
+                change24h = spot.second,
+                marketCap = if (spot.third > 0.0) spot.third else quote.marketCap,
+            )
+        }
         val holdings = graph.db.holdings().all()
         val raw = graph.media.decodeForWidget(config.backgroundPath, 640)
         val tint = runCatching { android.graphics.Color.parseColor(settings.widgetBorder) }.getOrDefault(0xFF3A3842.toInt())
@@ -162,7 +171,7 @@ fun render(
     fun money(value: Double) = if (hidden) "••••" else CompactMoney.format(value, currency)
     return when (config.kind) {
         WidgetKinds.TILE -> WidgetSnap(
-            primary = if (config.showPrice && !config.coinId.startsWith("cmc-")) CompactMoney.price(coin?.price ?: 0.0, currency) else money(coin?.marketCap ?: 0.0),
+            primary = if (config.showPrice && !config.coinId.startsWith("cmc-")) cmcSpot(coin?.price ?: 0.0, currency) else money(coin?.marketCap ?: 0.0),
             secondary = coin?.symbol ?: "",
             up = (coin?.change24h ?: 0.0) >= 0,
             title = if (config.coinId.startsWith("cmc-")) coin?.name ?: "Meme" else coin?.symbol ?: "COIN",
@@ -173,7 +182,7 @@ fun render(
             hidden = hidden,
         )
         WidgetKinds.PILL, WidgetKinds.SPARK -> WidgetSnap(
-            primary = CompactMoney.price(coin?.price ?: 0.0, currency),
+            primary = cmcSpot(coin?.price ?: 0.0, currency),
             secondary = CompactMoney.percent(coin?.change24h ?: 0.0),
             up = (coin?.change24h ?: 0.0) >= 0,
             title = coin?.symbol ?: "COIN",
@@ -188,7 +197,7 @@ fun render(
             secondary = "",
             up = true,
             title = "Watchlist",
-            lines = quotes.take(8).map { it.symbol to CompactMoney.price(it.price, currency) },
+            lines = quotes.take(8).map { it.symbol to cmcSpot(it.price, currency) },
             spark = emptyList(),
             background = background,
             scrim = config.scrim,
@@ -232,6 +241,20 @@ private fun parseSpark(raw: String?): List<Double> {
     if (all.size <= 48) return all
     val step = all.size / 48
     return all.filterIndexed { index, _ -> index % step == 0 }
+}
+
+private fun cmcSpot(value: Double, currency: String): String {
+    if (value.isNaN() || value.isInfinite() || value == 0.0) return "—"
+    val symbol = CompactMoney.symbol(currency)
+    val abs = kotlin.math.abs(value)
+    val text = when {
+        currency.equals("jpy", true) && abs >= 1.0 -> String.format(java.util.Locale.US, "%,.0f", abs)
+        abs >= 1.0 -> String.format(java.util.Locale.US, "%,.2f", abs)
+        abs >= 0.01 -> String.format(java.util.Locale.US, "%.4f", abs)
+        abs >= 0.0001 -> String.format(java.util.Locale.US, "%.6f", abs)
+        else -> String.format(java.util.Locale.US, "%.8f", abs).trimEnd('0').trimEnd('.')
+    }
+    return (if (value < 0) "-" else "") + symbol + text
 }
 
 fun frameBitmap(width: Int, height: Int, color: Int, stroke: Float, radius: Float): Bitmap {
@@ -334,12 +357,12 @@ private fun clipToWidget(source: Bitmap, width: Int, height: Int, radius: Float)
 }
 
 @Composable
-private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = true, tapBody: Boolean = true, clipBackground: Boolean = false, contentPadding: androidx.compose.ui.unit.Dp = 16.dp, body: @Composable ColumnScope.() -> Unit) {
+private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = true, tapBody: Boolean = true, clipBackground: Boolean = false, contentPadding: androidx.compose.ui.unit.Dp = 16.dp, cornerOverridePx: Float? = null, body: @Composable ColumnScope.() -> Unit) {
     val context = LocalContext.current
     val open = launchAction(context, snap.tapPackage)
     val size = LocalSize.current
     val density = context.resources.displayMetrics.density
-    val cornerPx = widgetCornerPx(context)
+    val cornerPx = cornerOverridePx ?: widgetCornerPx(context)
     val widthPx = (size.width.value * density).toInt().coerceAtLeast(8)
     val heightPx = (size.height.value * density).toInt().coerceAtLeast(8)
     val frame = frameBitmap(
@@ -435,21 +458,43 @@ class TotalMarketCapWidget : GlanceAppWidget() {
                 2f,
             )
             Chrome(snap, showTitle = false, tapBody = false) {
-                Column(modifier = GlanceModifier.fillMaxWidth()) {
-                    Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = GlanceModifier.fillMaxSize()) {
+                    Column(modifier = GlanceModifier.fillMaxWidth()) {
+                        Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                snap.primary,
+                                modifier = if (open != null) GlanceModifier.defaultWeight().clickable(open) else GlanceModifier.defaultWeight(),
+                                style = TextStyle(
+                                    color = ColorProvider(Paper),
+                                    fontSize = when {
+                                        height < 80.dp -> 18.sp
+                                        height < 150.dp -> 28.sp
+                                        else -> 40.sp
+                                    },
+                                    fontWeight = FontWeight.Bold,
+                                ),
+                            )
+                        }
                         Text(
-                            snap.primary,
-                            modifier = if (open != null) GlanceModifier.defaultWeight().clickable(open) else GlanceModifier.defaultWeight(),
-                            style = TextStyle(
-                                color = ColorProvider(Paper),
-                                fontSize = when {
-                                    height < 80.dp -> 18.sp
-                                    height < 150.dp -> 28.sp
-                                    else -> 40.sp
-                                },
-                                fontWeight = FontWeight.Bold,
-                            ),
+                            snap.secondary + " 24h",
+                            modifier = if (open != null) GlanceModifier.clickable(open) else GlanceModifier,
+                            style = TextStyle(color = ColorProvider(if (snap.up) UpColor else DownColor), fontSize = 13.sp),
                         )
+                        if (snap.spark.size > 1) {
+                            val chartMod = GlanceModifier.width(chartWidth).height(28.dp).padding(top = 2.dp)
+                            Image(
+                                provider = ImageProvider(chart),
+                                contentDescription = "Market trend",
+                                modifier = if (open != null) chartMod.clickable(open) else chartMod,
+                                contentScale = ContentScale.FillBounds,
+                            )
+                        }
+                    }
+                    Row(
+                        modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
+                        horizontalAlignment = Alignment.End,
+                        verticalAlignment = Alignment.Bottom,
+                    ) {
                         Image(
                             provider = ImageProvider(R.drawable.ic_refresh),
                             contentDescription = if (snap.refreshNote.isBlank()) "Refresh" else snap.refreshNote,
@@ -460,20 +505,6 @@ class TotalMarketCapWidget : GlanceAppWidget() {
                             Text(snap.refreshNote, style = TextStyle(color = ColorProvider(Paper.copy(alpha = 0.65f)), fontSize = 10.sp))
                         }
                     }
-                    Text(
-                        snap.secondary + " 24h",
-                        modifier = if (open != null) GlanceModifier.clickable(open) else GlanceModifier,
-                        style = TextStyle(color = ColorProvider(if (snap.up) UpColor else DownColor), fontSize = 13.sp),
-                    )
-                }
-                if (snap.spark.size > 1) {
-                    val chartMod = GlanceModifier.width(chartWidth).height(28.dp).padding(top = 2.dp)
-                    Image(
-                        provider = ImageProvider(chart),
-                        contentDescription = "Market trend",
-                        modifier = if (open != null) chartMod.clickable(open) else chartMod,
-                        contentScale = ContentScale.FillBounds,
-                    )
                 }
             }
         }
@@ -525,13 +556,17 @@ class PillWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val snap = WidgetSnapshots.load(context, id, WidgetKinds.PILL)
         provideContent {
+            val density = LocalContext.current.resources.displayMetrics.density
+            val heightPx = LocalSize.current.height.value * density
+            val system = widgetCornerPx(LocalContext.current)
+            val corner = if (heightPx < system * 3.2f) minOf(system, 16f * density) else system
             val height = LocalSize.current.height
             val nameSize = when {
                 height < 120.dp -> 18.sp
                 height > 220.dp -> 32.sp
                 else -> 22.sp
             }
-            Chrome(snap) {
+            Chrome(snap, cornerOverridePx = corner) {
                 Text(snap.primary, style = TextStyle(color = ColorProvider(Paper), fontSize = nameSize, fontWeight = FontWeight.Bold))
                 Text(snap.secondary, style = TextStyle(color = ColorProvider(if (snap.up) UpColor else DownColor), fontSize = if (height > 220.dp) 16.sp else 13.sp))
             }

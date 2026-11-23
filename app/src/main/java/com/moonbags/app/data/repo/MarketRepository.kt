@@ -110,8 +110,8 @@ class MarketRepository(
         coroutineScope {
             val gecko = async { runCatching { HttpClients.gecko.global().data }.getOrNull() }
             val cmc = async { cmcGlobal() }
-            val caps = async { cmcCaps() }
             val markets = async { runCatching { HttpClients.gecko.markets(fiat, ids) }.getOrDefault(emptyList()) }
+            val spots = async { cmcSpots(fiat) }
             val memes = async { refreshMemes(watchIds, fiat, System.currentTimeMillis()) }
             val geckoData = gecko.await()
             val cmcData = cmc.await()
@@ -125,20 +125,19 @@ class MarketRepository(
                 ),
             )
             val now = System.currentTimeMillis()
-            val capMap = caps.await()
+            val spotMap = spots.await()
             val marketRows = markets.await()
-            val overlays = coinbaseOverlays(marketRows.map { it.symbol.uppercase() }, fiat)
-            if (marketRows.isNotEmpty()) db.market().upsertQuotes(
+            if (marketRows.isNotEmpty() || spotMap.isNotEmpty()) db.market().upsertQuotes(
                 marketRows.map { coin ->
                     val symbol = coin.symbol.uppercase()
-                    val overlay = overlays[symbol]
+                    val spot = spotMap[symbol]
                     QuoteEntity(
                         coinId = coin.id,
                         symbol = symbol,
                         name = coin.name,
-                        price = overlay?.price ?: coin.currentPrice ?: 0.0,
-                        marketCap = capMap[symbol] ?: coin.marketCap ?: 0.0,
-                        change24h = overlay?.change ?: coin.changeInCurrency ?: coin.change24h ?: 0.0,
+                        price = spot?.first?.takeIf { it > 0 } ?: coin.currentPrice ?: 0.0,
+                        marketCap = spot?.third?.takeIf { it > 0 } ?: coin.marketCap ?: 0.0,
+                        change24h = spot?.second ?: coin.changeInCurrency ?: coin.change24h ?: 0.0,
                         sparkline = coin.sparkline?.price?.joinToString(",") { it.toString() }.orEmpty(),
                         imageUrl = coin.image,
                         currency = fiat,
@@ -372,18 +371,77 @@ class MarketRepository(
         Triple(cap, row.optDouble("totalVolume24H"), row.optDouble("totalMarketCapYesterdayPercentageChange"))
     }.getOrNull()
 
-    private fun cmcCaps(): Map<String, Double> = runCatching {
-        val body = cmc("https://api.coinmarketcap.com/data-api/v3/cryptocurrency/listing?start=1&limit=200&sortBy=market_cap&sortType=desc&convert=USD&cryptoType=all&tagType=all&audited=false")
+    suspend fun freshCmc(currency: String, coins: List<Pair<String, String>>): Map<String, Triple<Double, Double, Double>> = withContext(Dispatchers.IO) {
+        val listed = cmcSpots(currency.lowercase())
+        if (coins.isEmpty()) return@withContext listed
+        val missing = coins.filter { (symbol, _) -> symbol.uppercase() !in listed }
+        if (missing.isEmpty()) return@withContext listed
+        val extra = coroutineScope {
+            missing.take(12).map { (symbol, id) ->
+                async {
+                    val spot = cmcByIdentity(id, currency.lowercase()) ?: return@async null
+                    symbol.uppercase() to spot
+                }
+            }.mapNotNull { it.await() }
+        }
+        listed + extra
+    }
+
+    private fun cmcSpots(currency: String): Map<String, Triple<Double, Double, Double>> = runCatching {
+        val convert = currency.uppercase()
+        val body = cmc("https://api.coinmarketcap.com/data-api/v3/cryptocurrency/listing?start=1&limit=200&sortBy=market_cap&sortType=desc&convert=$convert&cryptoType=all&tagType=all&audited=false")
         val list = JSONObject(body).getJSONObject("data").getJSONArray("cryptoCurrencyList")
         buildMap {
             for (index in 0 until list.length()) {
                 val coin = list.getJSONObject(index)
                 val symbol = coin.optString("symbol").uppercase()
-                val cap = coin.optJSONArray("quotes")?.optJSONObject(0)?.optDouble("marketCap") ?: continue
-                if (symbol.isNotBlank() && cap.isFinite() && cap > 0.0) put(symbol, cap)
+                val quote = cmcQuote(coin.optJSONArray("quotes"), convert) ?: continue
+                if (symbol.isNotBlank() && quote.first > 0) put(symbol, quote)
             }
         }
     }.getOrDefault(emptyMap())
+
+    private fun cmcByIdentity(id: String, currency: String): Triple<Double, Double, Double>? {
+        val convert = currency.uppercase()
+        val numeric = id.removePrefix("cmc-")
+        val url = if (id.startsWith("cmc-") && numeric.all { it.isDigit() }) {
+            "https://api.coinmarketcap.com/data-api/v3/cryptocurrency/detail/lite?id=$numeric"
+        } else if (id.isNotBlank() && !id.startsWith("dex")) {
+            "https://api.coinmarketcap.com/data-api/v3/cryptocurrency/detail?slug=$id"
+        } else {
+            return null
+        }
+        return runCatching {
+            val data = JSONObject(cmc(url)).optJSONObject("data") ?: return@runCatching null
+            val stats = data.optJSONObject("statistics")
+            val quote = cmcQuote(data.optJSONArray("quotes"), convert)
+            val price = quote?.first ?: stats?.optDouble("price") ?: return@runCatching null
+            if (!price.isFinite() || price <= 0) return@runCatching null
+            val change = quote?.second ?: stats?.optDouble("priceChangePercentage24h") ?: 0.0
+            val cap = quote?.third ?: stats?.optDouble("marketCap") ?: 0.0
+            Triple(price, if (change.isFinite()) change else 0.0, if (cap.isFinite()) cap else 0.0)
+        }.getOrNull()
+    }
+
+    private fun cmcQuote(quotes: org.json.JSONArray?, convert: String): Triple<Double, Double, Double>? {
+        if (quotes == null || quotes.length() == 0) return null
+        var chosen: org.json.JSONObject? = null
+        for (index in 0 until quotes.length()) {
+            val row = quotes.optJSONObject(index) ?: continue
+            val name = row.optString("name")
+            if (name.equals(convert, true) || name.equals("USD", true) && chosen == null) chosen = row
+            if (name.equals(convert, true)) {
+                chosen = row
+                break
+            }
+        }
+        val row = chosen ?: quotes.optJSONObject(0) ?: return null
+        val price = row.optDouble("price")
+        if (!price.isFinite() || price <= 0) return null
+        val change = row.optDouble("percentChange24h")
+        val cap = row.optDouble("marketCap")
+        return Triple(price, if (change.isFinite()) change else 0.0, if (cap.isFinite()) cap else 0.0)
+    }
 
     private fun logoFor(id: String, image: String): String {
         if (image.startsWith("http")) return image
