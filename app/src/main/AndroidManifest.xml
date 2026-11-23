@@ -40,6 +40,8 @@
         <activity
             android:name=".ui.config.WidgetConfigureActivity"
             android:exported="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
             android:theme="@style/Theme.MoonBags">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />

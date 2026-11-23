@@ -6,6 +6,8 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
 import android.graphics.RectF
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
@@ -130,7 +132,13 @@ object WidgetSnapshots {
             hidden = false,
             alpha = 0.7f,
         )
-        val global = graph.db.market().global(settings.currency)
+        val live = runCatching { graph.market.liveGlobal() }.getOrNull()
+        val storedGlobal = graph.db.market().global(settings.currency)
+        val global = if (live != null) {
+            val fresh = com.moonbags.app.data.local.GlobalEntity(settings.currency, live.first, live.second, live.third, System.currentTimeMillis())
+            runCatching { graph.db.market().upsertGlobal(fresh) }
+            fresh
+        } else storedGlobal
         val stored = graph.db.market().quotes().filter { it.currency == settings.currency }
         val spots = runCatching { graph.market.freshCmc(settings.currency, stored.map { it.symbol to it.coinId }) }.getOrDefault(emptyMap())
         val quotes = stored.map { quote ->
@@ -273,6 +281,9 @@ fun frameBitmap(width: Int, height: Int, color: Int, stroke: Float, radius: Floa
         this.color = color
         strokeJoin = Paint.Join.ROUND
     })
+    canvas.drawRect(0f, out.height - stroke / 2f, out.width.toFloat(), out.height.toFloat(), Paint().apply {
+        xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
+    })
     return out.freeze()
 }
 
@@ -353,7 +364,7 @@ private fun clipToWidget(source: Bitmap, width: Int, height: Int, radius: Float)
 }
 
 @Composable
-private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = true, tapBody: Boolean = true, clipBackground: Boolean = false, contentPadding: androidx.compose.ui.unit.Dp = 16.dp, body: @Composable ColumnScope.() -> Unit) {
+private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = true, tapBody: Boolean = true, clipBackground: Boolean = false, contentPadding: androidx.compose.ui.unit.Dp = 16.dp, showRefresh: Boolean = true, body: @Composable ColumnScope.() -> Unit) {
     val context = LocalContext.current
     val open = launchAction(context, snap.tapPackage)
     val size = LocalSize.current
@@ -399,7 +410,7 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = 
                 }
             }
             OpenBody(if (tapBody) open else null, body)
-            RefreshFoot(snap.refreshNote)
+            if (showRefresh) RefreshFoot(snap.refreshNote)
         }
     }
 }
@@ -421,9 +432,9 @@ private fun refreshClick() = actionRunCallback<RefreshAction>()
 private fun privacyClick() = actionRunCallback<TogglePrivacyAction>()
 
 @Composable
-private fun RefreshFoot(note: String) {
+private fun RefreshFoot(note: String, wide: Boolean = true) {
     Row(
-        modifier = GlanceModifier.fillMaxWidth(),
+        modifier = if (wide) GlanceModifier.fillMaxWidth() else GlanceModifier,
         horizontalAlignment = Alignment.End,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -445,49 +456,27 @@ class TotalMarketCapWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val snap = WidgetSnapshots.load(context, id, WidgetKinds.MCAP)
         provideContent {
-            val height = LocalSize.current.height
             val density = LocalContext.current.resources.displayMetrics.density
             val open = launchAction(LocalContext.current, snap.tapPackage)
-            val priceSp = when {
-                height < 80.dp -> 18f
-                height < 150.dp -> 28f
-                else -> 40f
-            }
-            val chartWidth = maxOf(
-                snap.primary.length * priceSp * 0.62f,
-                (snap.secondary + " 24h").length * 13f * 0.56f,
-            ).coerceIn(96f, 220f).dp
-            val chart = sparkBitmap(
-                snap.spark,
-                snap.up,
-                (chartWidth.value * density).toInt(),
-                (28f * density).toInt(),
-                2f,
-            )
-            Chrome(snap, showTitle = false, tapBody = false) {
-                Column(modifier = GlanceModifier.fillMaxWidth()) {
-                    Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            val chartWidth = 96.dp
+            val chart = sparkBitmap(snap.spark, snap.up, (chartWidth.value * density).toInt(), (22f * density).toInt(), 2f)
+            Chrome(snap, showTitle = false, tapBody = false, showRefresh = false, contentPadding = 8.dp) {
+                Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    val body = GlanceModifier.defaultWeight()
+                    Column(modifier = if (open != null) body.clickable(open) else body) {
                         Text(
                             snap.primary,
-                            modifier = if (open != null) GlanceModifier.defaultWeight().clickable(open) else GlanceModifier.defaultWeight(),
-                            style = TextStyle(
-                                color = ColorProvider(Paper),
-                                fontSize = when {
-                                    height < 80.dp -> 18.sp
-                                    height < 150.dp -> 28.sp
-                                    else -> 40.sp
-                                },
-                                fontWeight = FontWeight.Bold,
-                            ),
+                            style = TextStyle(color = ColorProvider(Paper), fontSize = 14.4.sp, fontWeight = FontWeight.Bold),
+                            maxLines = 1,
+                        )
+                        Text(
+                            snap.secondary + " 24h",
+                            style = TextStyle(color = ColorProvider(if (snap.up) UpColor else DownColor), fontSize = 10.4.sp),
+                            maxLines = 1,
                         )
                     }
-                    Text(
-                        snap.secondary + " 24h",
-                        modifier = if (open != null) GlanceModifier.clickable(open) else GlanceModifier,
-                        style = TextStyle(color = ColorProvider(if (snap.up) UpColor else DownColor), fontSize = 13.sp),
-                    )
                     if (snap.spark.size > 1) {
-                        val chartMod = GlanceModifier.width(chartWidth).height(28.dp).padding(top = 2.dp)
+                        val chartMod = GlanceModifier.width(chartWidth).height(22.dp)
                         Image(
                             provider = ImageProvider(chart),
                             contentDescription = "Market trend",
@@ -495,6 +484,7 @@ class TotalMarketCapWidget : GlanceAppWidget() {
                             contentScale = ContentScale.FillBounds,
                         )
                     }
+                    RefreshFoot(snap.refreshNote, wide = false)
                 }
             }
         }
@@ -538,18 +528,22 @@ class SingleCoinWidget : GlanceAppWidget() {
 }
 
 class PillWidget : GlanceAppWidget() {
+    override val sizeMode = SizeMode.Exact
+
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val snap = WidgetSnapshots.load(context, id, WidgetKinds.PILL)
         provideContent {
-            val height = LocalSize.current.height
-            val nameSize = when {
-                height < 120.dp -> 18.sp
-                height > 220.dp -> 32.sp
-                else -> 22.sp
-            }
-            Chrome(snap) {
-                Text(snap.primary, style = TextStyle(color = ColorProvider(Paper), fontSize = nameSize, fontWeight = FontWeight.Bold))
-                Text(snap.secondary, style = TextStyle(color = ColorProvider(if (snap.up) UpColor else DownColor), fontSize = if (height > 220.dp) 16.sp else 13.sp))
+            val open = launchAction(LocalContext.current, snap.tapPackage)
+            Chrome(snap, showTitle = false, tapBody = false, showRefresh = false, contentPadding = 8.dp) {
+                Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    val body = GlanceModifier.defaultWeight()
+                    Column(modifier = if (open != null) body.clickable(open) else body) {
+                        Text(snap.title, style = TextStyle(color = ColorProvider(White), fontSize = 8.8.sp, fontWeight = FontWeight.Medium), maxLines = 1)
+                        Text(snap.primary, style = TextStyle(color = ColorProvider(Paper), fontSize = 14.4.sp, fontWeight = FontWeight.Bold), maxLines = 1)
+                    }
+                    Text(snap.secondary, style = TextStyle(color = ColorProvider(if (snap.up) UpColor else DownColor), fontSize = 10.4.sp), maxLines = 1)
+                    RefreshFoot(snap.refreshNote, wide = false)
+                }
             }
         }
     }
@@ -576,20 +570,30 @@ class SparklineWidget : GlanceAppWidget() {
 }
 
 class SparklineBarWidget : GlanceAppWidget() {
+    override val sizeMode = SizeMode.Exact
+
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val snap = WidgetSnapshots.load(context, id, WidgetKinds.SPARK_BAR)
-        val chart = sparkBitmap(snap.spark, snap.up)
+        val chart = sparkBitmap(snap.spark, snap.up, 280, 64, 2f)
         provideContent {
-            val height = LocalSize.current.height
-            val nameSize = when {
-                height < 140.dp -> 18.sp
-                height > 260.dp -> 34.sp
-                else -> 22.sp
-            }
-            Chrome(snap, clipBackground = true) {
-                Text(snap.primary, style = TextStyle(color = ColorProvider(Paper), fontSize = nameSize, fontWeight = FontWeight.Bold))
-                Text(snap.secondary, style = TextStyle(color = ColorProvider(if (snap.up) UpColor else DownColor), fontSize = if (height > 260.dp) 16.sp else 12.sp))
-                Image(provider = ImageProvider(chart), contentDescription = "7 day trend", modifier = GlanceModifier.fillMaxWidth().defaultWeight(), contentScale = ContentScale.FillBounds)
+            val open = launchAction(LocalContext.current, snap.tapPackage)
+            Chrome(snap, showTitle = false, tapBody = false, showRefresh = false, clipBackground = true, contentPadding = 8.dp) {
+                Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    val body = GlanceModifier.defaultWeight()
+                    Column(modifier = if (open != null) body.clickable(open) else body) {
+                        Text(snap.title, style = TextStyle(color = ColorProvider(White), fontSize = 8.8.sp, fontWeight = FontWeight.Medium), maxLines = 1)
+                        Text(snap.primary, style = TextStyle(color = ColorProvider(Paper), fontSize = 14.4.sp, fontWeight = FontWeight.Bold), maxLines = 1)
+                    }
+                    val chartMod = GlanceModifier.width(88.dp).height(24.dp)
+                    Image(
+                        provider = ImageProvider(chart),
+                        contentDescription = "7 day trend",
+                        modifier = if (open != null) chartMod.clickable(open) else chartMod,
+                        contentScale = ContentScale.FillBounds,
+                    )
+                    Text(snap.secondary, style = TextStyle(color = ColorProvider(if (snap.up) UpColor else DownColor), fontSize = 10.4.sp), maxLines = 1)
+                    RefreshFoot(snap.refreshNote, wide = false)
+                }
             }
         }
     }

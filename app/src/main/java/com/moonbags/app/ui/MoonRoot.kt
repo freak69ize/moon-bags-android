@@ -207,13 +207,27 @@ private fun LaunchSplash(path: String?, onSkip: () -> Unit) {
     }
 }
 
+private fun strongTap(view: android.view.View, context: android.content.Context) {
+    runCatching { view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS) }
+    runCatching {
+        val vibrator = context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? android.os.Vibrator ?: return
+        if (!vibrator.hasVibrator()) return
+        if (android.os.Build.VERSION.SDK_INT >= 26) {
+            vibrator.vibrate(android.os.VibrationEffect.createOneShot(55, 255))
+        } else {
+            @Suppress("DEPRECATION")
+            vibrator.vibrate(55)
+        }
+    }
+}
+
 @Composable
 private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit, onSettings: () -> Unit) {
     val currency = state.settings.currency
     val sub = parseHex(state.settings.subtextColor)
     var query by remember { mutableStateOf("") }
     var hits by remember { mutableStateOf<List<SearchCoinDto>>(emptyList()) }
-    val lift = remember { Animatable(0f) }
+    var lift by remember { mutableFloatStateOf(0f) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val view = androidx.compose.ui.platform.LocalView.current
@@ -235,7 +249,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Box(Modifier.size(40.dp).clickable {
-                        view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+                        strongTap(view, context)
                         onWidgets()
                     }, contentAlignment = Alignment.Center) {
                         Canvas(Modifier.size(20.dp)) {
@@ -243,7 +257,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
                         }
                     }
                     Box(Modifier.size(40.dp).clickable {
-                        view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+                        strongTap(view, context)
                         onSettings()
                     }, contentAlignment = Alignment.Center) {
                         Canvas(Modifier.size(20.dp)) {
@@ -295,23 +309,24 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
             }
         }
         BoxWithConstraints(Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight()) {
-            val progress = lift.value.coerceIn(0f, 1f)
+            val progress = lift.coerceIn(0f, 1f)
             val wideSheet = maxWidth >= 600.dp
-            val travel = with(LocalDensity.current) {
-                val span = maxHeight.toPx() * if (wideSheet) 0.28f else 0.55f
-                span.coerceIn(160.dp.toPx(), if (wideSheet) 380.dp.toPx() else maxHeight.toPx())
-            }
+            val travel = with(LocalDensity.current) { maxHeight.toPx().coerceAtLeast(1f) }
             val sheetWidth = if (wideSheet) minOf(maxWidth * 0.94f, 640.dp) else maxWidth
             val statusTop = with(LocalDensity.current) { WindowInsets.statusBars.getTop(this).toDp() }
-            BackHandler(enabled = progress > 0.08f) {
-                scope.launch { lift.animateTo(0f, tween(260, easing = SheetEase)) }
+            fun glide(target: Float, ms: Int = 280) {
+                scope.launch {
+                    val anim = Animatable(lift)
+                    anim.animateTo(target, tween(ms, easing = SheetEase)) { lift = value }
+                }
             }
+            BackHandler(enabled = progress > 0.08f) { glide(0f, 260) }
             Box(
                 Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(start = 12.dp * (1f - progress), end = 12.dp * (1f - progress), bottom = 12.dp * (1f - progress))
+                    .padding(start = 12.dp * (1f - progress), end = 12.dp * (1f - progress))
                     .width(sheetWidth)
-                    .height(96.dp + (maxHeight - 96.dp) * progress)
+                    .fillMaxHeight((0.14f + 0.86f * progress).coerceIn(0.14f, 1f))
                     .clip(RoundedCornerShape(if (progress > 0.92f) 0.dp else 28.dp))
                     .background(parseHex(state.settings.searchBarColor).copy(alpha = state.settings.searchBarAlpha.coerceIn(0.15f, 1f)))
                     .border(1.dp, Color.White.copy(alpha = state.settings.pillBorderAlpha.coerceIn(0f, 1f)), RoundedCornerShape(if (progress > 0.92f) 0.dp else 28.dp)),
@@ -319,18 +334,15 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
                 Column(Modifier.fillMaxSize().padding(start = 12.dp, end = 12.dp, top = 10.dp + statusTop * progress, bottom = 8.dp)) {
                     val dragPill = Modifier.holdToDrag(
                         onDelta = { amount ->
-                            val next = (lift.value - amount / travel).coerceIn(0f, 1f)
-                            scope.launch { lift.snapTo(next) }
+                            lift = (lift - (amount / travel) * 2.6f).coerceIn(0f, 1f)
                         },
-                        onEnd = {
-                            scope.launch { lift.animateTo(if (lift.value > 0.32f) 1f else 0f, tween(280, easing = SheetEase)) }
-                        },
+                        onEnd = { glide(if (lift > 0.16f) 1f else 0f) },
                     )
                     if (progress > 0.45f) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.size(40.dp).clickable {
                                 view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
-                                scope.launch { lift.animateTo(0f, tween(260, easing = SheetEase)) }
+                                glide(0f, 260)
                             }, contentAlignment = Alignment.Center) {
                                 Icon(Icons.Outlined.ArrowBack, contentDescription = "Back", tint = Color.White)
                             }
@@ -351,7 +363,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
                     } else {
                         Box(
                             Modifier.fillMaxWidth().height(52.dp).clip(CircleShape).background(parseHex(state.settings.searchPillColor)).border(1.dp, Color.White.copy(alpha = state.settings.pillBorderAlpha), CircleShape).then(dragPill).clickable {
-                                scope.launch { lift.animateTo(1f, tween(280, easing = SheetEase)) }
+                                glide(1f)
                             },
                             contentAlignment = Alignment.Center,
                         ) {
@@ -370,7 +382,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
                                         vm.addWatched(hit)
                                         query = ""
                                         hits = emptyList()
-                                        scope.launch { lift.animateTo(0f, tween(420, easing = SheetEase)) }
+                                        glide(0f, 420)
                                     }.padding(vertical = 10.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {

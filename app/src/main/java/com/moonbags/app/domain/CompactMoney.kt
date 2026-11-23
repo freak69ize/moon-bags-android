@@ -52,10 +52,15 @@ object CompactMoney {
         val symbol = symbol(currency)
         val abs = kotlin.math.abs(value)
         return when {
-            abs >= 1_000_000_000_000.0 -> symbol + String.format(Locale.US, "%.2fT", abs / 1_000_000_000_000.0)
-            abs >= 1_000_000_000.0 -> symbol + String.format(Locale.US, "%.2fB", abs / 1_000_000_000.0)
+            abs >= 1_000_000_000_000.0 -> symbol + floor2(abs / 1_000_000_000_000.0) + "T"
+            abs >= 1_000_000_000.0 -> symbol + floor2(abs / 1_000_000_000.0) + "B"
             else -> format(value, currency)
         }
+    }
+
+    private fun floor2(scaled: Double): String {
+        val cut = kotlin.math.floor(scaled * 100.0) / 100.0
+        return String.format(Locale.US, "%.2f", cut)
     }
 
     fun percent(value: Double): String {

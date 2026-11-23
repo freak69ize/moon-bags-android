@@ -355,6 +355,8 @@ class MarketRepository(
         return prices.filterIndexed { index, _ -> index % step == 0 }.joinToString(",")
     }
 
+    suspend fun liveGlobal(): Triple<Double, Double, Double>? = withContext(Dispatchers.IO) { cmcGlobal() }
+
     private fun cmcGlobal(): Triple<Double, Double, Double>? = runCatching {
         val body = cmc("https://api.coinmarketcap.com/data-api/v3/global-metrics/quotes/latest")
         val quotes = JSONObject(body).getJSONObject("data").getJSONArray("quotes")
@@ -501,6 +503,8 @@ class MarketRepository(
             .url(url)
             .header("User-Agent", "Mozilla/5.0")
             .header("Accept", "application/json")
+            .header("Referer", "https://coinmarketcap.com/")
+            .header("Origin", "https://coinmarketcap.com")
             .header("Cache-Control", "no-cache")
             .header("Pragma", "no-cache")
             .get()
