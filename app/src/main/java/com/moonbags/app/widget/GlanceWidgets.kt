@@ -103,7 +103,7 @@ data class WidgetSnap(
 )
 
 private val Paper = Color(0xFFEFE8DC)
-private val Brass = Color(0xFFD4A24A)
+private val White = Color(0xFFFFFFFF)
 private val Ink = Color(0xFF1D1B20)
 private val UpColor = Color(0xFF3DDC84)
 private val DownColor = Color(0xFFFF4D4D)
@@ -389,7 +389,7 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = 
                         Text(
                             snap.title,
                             modifier = GlanceModifier.defaultWeight(),
-                            style = TextStyle(color = ColorProvider(Brass), fontSize = 11.sp, fontWeight = FontWeight.Medium),
+                            style = TextStyle(color = ColorProvider(White), fontSize = 11.sp, fontWeight = FontWeight.Medium),
                         )
                     }
                     if (eye) {
@@ -399,17 +399,10 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = 
                             modifier = GlanceModifier.size(18.dp).clickable(privacyClick()),
                         )
                     }
-                    Image(
-                        provider = ImageProvider(R.drawable.ic_refresh),
-                        contentDescription = "Refresh",
-                        modifier = refreshTarget(),
-                    )
-                    if (snap.refreshNote.isNotBlank()) {
-                        Text(snap.refreshNote, style = TextStyle(color = ColorProvider(Paper), fontSize = 10.sp))
-                    }
                 }
             }
             OpenBody(if (tapBody) open else null, body)
+            RefreshFoot(snap.refreshNote)
         }
     }
 }
@@ -427,10 +420,27 @@ private fun ColumnScope.OpenBody(open: Action?, body: @Composable ColumnScope.()
     if (open == null) Column(modifier) { body() } else Column(modifier.clickable(open)) { body() }
 }
 
-private fun refreshTarget() = GlanceModifier.size(44.dp).background(ColorProvider(Color.Transparent)).clickable(refreshClick())
-
 private fun refreshClick() = actionRunCallback<RefreshAction>()
 private fun privacyClick() = actionRunCallback<TogglePrivacyAction>()
+
+@Composable
+private fun RefreshFoot(note: String) {
+    Row(
+        modifier = GlanceModifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.End,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (note.isNotBlank()) {
+            Text(note, style = TextStyle(color = ColorProvider(Color(0xFFEFE8DC).copy(alpha = 0.65f)), fontSize = 10.sp))
+        }
+        Image(
+            provider = ImageProvider(R.drawable.ic_refresh),
+            contentDescription = if (note.isBlank()) "Refresh" else note,
+            modifier = GlanceModifier.size(24.dp).background(ColorProvider(Color.Transparent)).clickable(refreshClick()),
+            colorFilter = androidx.glance.ColorFilter.tint(ColorProvider(Color(0xFFE8E6E6).copy(alpha = 0.65f))),
+        )
+    }
+}
 
 class TotalMarketCapWidget : GlanceAppWidget() {
     override val sizeMode = SizeMode.Exact
@@ -458,52 +468,35 @@ class TotalMarketCapWidget : GlanceAppWidget() {
                 2f,
             )
             Chrome(snap, showTitle = false, tapBody = false) {
-                Column(modifier = GlanceModifier.fillMaxSize()) {
-                    Column(modifier = GlanceModifier.fillMaxWidth()) {
-                        Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                snap.primary,
-                                modifier = if (open != null) GlanceModifier.defaultWeight().clickable(open) else GlanceModifier.defaultWeight(),
-                                style = TextStyle(
-                                    color = ColorProvider(Paper),
-                                    fontSize = when {
-                                        height < 80.dp -> 18.sp
-                                        height < 150.dp -> 28.sp
-                                        else -> 40.sp
-                                    },
-                                    fontWeight = FontWeight.Bold,
-                                ),
-                            )
-                        }
+                Column(modifier = GlanceModifier.fillMaxWidth()) {
+                    Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            snap.secondary + " 24h",
-                            modifier = if (open != null) GlanceModifier.clickable(open) else GlanceModifier,
-                            style = TextStyle(color = ColorProvider(if (snap.up) UpColor else DownColor), fontSize = 13.sp),
+                            snap.primary,
+                            modifier = if (open != null) GlanceModifier.defaultWeight().clickable(open) else GlanceModifier.defaultWeight(),
+                            style = TextStyle(
+                                color = ColorProvider(Paper),
+                                fontSize = when {
+                                    height < 80.dp -> 18.sp
+                                    height < 150.dp -> 28.sp
+                                    else -> 40.sp
+                                },
+                                fontWeight = FontWeight.Bold,
+                            ),
                         )
-                        if (snap.spark.size > 1) {
-                            val chartMod = GlanceModifier.width(chartWidth).height(28.dp).padding(top = 2.dp)
-                            Image(
-                                provider = ImageProvider(chart),
-                                contentDescription = "Market trend",
-                                modifier = if (open != null) chartMod.clickable(open) else chartMod,
-                                contentScale = ContentScale.FillBounds,
-                            )
-                        }
                     }
-                    Row(
-                        modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
-                        horizontalAlignment = Alignment.End,
-                        verticalAlignment = Alignment.Bottom,
-                    ) {
+                    Text(
+                        snap.secondary + " 24h",
+                        modifier = if (open != null) GlanceModifier.clickable(open) else GlanceModifier,
+                        style = TextStyle(color = ColorProvider(if (snap.up) UpColor else DownColor), fontSize = 13.sp),
+                    )
+                    if (snap.spark.size > 1) {
+                        val chartMod = GlanceModifier.width(chartWidth).height(28.dp).padding(top = 2.dp)
                         Image(
-                            provider = ImageProvider(R.drawable.ic_refresh),
-                            contentDescription = if (snap.refreshNote.isBlank()) "Refresh" else snap.refreshNote,
-                            modifier = GlanceModifier.size(24.dp).background(ColorProvider(Color.Transparent)).clickable(refreshClick()),
-                            colorFilter = androidx.glance.ColorFilter.tint(ColorProvider(Color(0xFFE8E6E6).copy(alpha = 0.65f))),
+                            provider = ImageProvider(chart),
+                            contentDescription = "Market trend",
+                            modifier = if (open != null) chartMod.clickable(open) else chartMod,
+                            contentScale = ContentScale.FillBounds,
                         )
-                        if (snap.refreshNote.isNotBlank()) {
-                            Text(snap.refreshNote, style = TextStyle(color = ColorProvider(Paper.copy(alpha = 0.65f)), fontSize = 10.sp))
-                        }
                     }
                 }
             }
@@ -530,7 +523,7 @@ class SingleCoinWidget : GlanceAppWidget() {
                     val body = GlanceModifier.defaultWeight().background(ColorProvider(Color.Transparent))
                     Column(modifier = if (open != null) body.clickable(open) else body) {
                         Text(snap.title, style = TextStyle(color = ColorProvider(Paper), fontSize = if (tight) 11.sp else if (roomy) 18.sp else 13.sp, fontWeight = FontWeight.Bold))
-                        Text(snap.primary, style = TextStyle(color = ColorProvider(Brass), fontSize = if (roomy) 16.sp else 12.sp))
+                        Text(snap.primary, style = TextStyle(color = ColorProvider(White), fontSize = if (roomy) 16.sp else 12.sp))
                     }
                     if (snap.spark.size > 1) {
                         val chartMod = GlanceModifier.width(chartWidth).height(if (roomy) 44.dp else 32.dp).background(ColorProvider(Color.Transparent))
@@ -541,11 +534,6 @@ class SingleCoinWidget : GlanceAppWidget() {
                             contentScale = ContentScale.FillBounds,
                         )
                     }
-                    Image(
-                        provider = ImageProvider(R.drawable.ic_refresh),
-                        contentDescription = "Refresh",
-                        modifier = GlanceModifier.size(24.dp).background(ColorProvider(Color.Transparent)).clickable(refreshClick()),
-                    )
                 }
             }
         }
@@ -556,17 +544,13 @@ class PillWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val snap = WidgetSnapshots.load(context, id, WidgetKinds.PILL)
         provideContent {
-            val density = LocalContext.current.resources.displayMetrics.density
-            val heightPx = LocalSize.current.height.value * density
-            val system = widgetCornerPx(LocalContext.current)
-            val corner = if (heightPx < system * 3.2f) minOf(system, 16f * density) else system
             val height = LocalSize.current.height
             val nameSize = when {
                 height < 120.dp -> 18.sp
                 height > 220.dp -> 32.sp
                 else -> 22.sp
             }
-            Chrome(snap, cornerOverridePx = corner) {
+            Chrome(snap) {
                 Text(snap.primary, style = TextStyle(color = ColorProvider(Paper), fontSize = nameSize, fontWeight = FontWeight.Bold))
                 Text(snap.secondary, style = TextStyle(color = ColorProvider(if (snap.up) UpColor else DownColor), fontSize = if (height > 220.dp) 16.sp else 13.sp))
             }
@@ -603,7 +587,7 @@ class WatchlistWidget : GlanceAppWidget() {
                     items(snap.lines, itemId = { it.first.hashCode().toLong() }) { line ->
                         Row(modifier = GlanceModifier.fillMaxWidth().padding(2.dp)) {
                             Text(line.first, style = TextStyle(color = ColorProvider(Paper), fontSize = 13.sp))
-                            Text(line.second, style = TextStyle(color = ColorProvider(Brass), fontSize = 13.sp, textAlign = TextAlign.End))
+                            Text(line.second, style = TextStyle(color = ColorProvider(White), fontSize = 13.sp, textAlign = TextAlign.End))
                         }
                     }
                 }
