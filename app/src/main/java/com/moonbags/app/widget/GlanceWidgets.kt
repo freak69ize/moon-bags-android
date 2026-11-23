@@ -577,20 +577,15 @@ class RefreshAction : ActionCallback {
         context.widgetPulse(done = false)
         writeRefresh(context, "busy", 0L)
         try {
-            kotlinx.coroutines.coroutineScope {
-                val painted = kotlinx.coroutines.async { updateAllWidgets(context) }
-                val graph = (context.applicationContext as MoonBagsApp).graph
-                val settings = graph.settings.flow.first()
-                val ids = settings.watchIds.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-                graph.market.refresh(settings.currency, ids)
-                painted.await()
-            }
+            val graph = (context.applicationContext as MoonBagsApp).graph
+            val settings = graph.settings.flow.first()
+            val ids = settings.watchIds.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            graph.market.refresh(settings.currency, ids)
             writeRefresh(context, "ok", System.currentTimeMillis())
-            context.widgetPulse(done = true)
         } catch (_: Exception) {
             writeRefresh(context, "fail", System.currentTimeMillis())
-            context.widgetPulse(done = true)
         }
+        context.widgetPulse(done = true)
         updateAllWidgets(context)
     }
 }
