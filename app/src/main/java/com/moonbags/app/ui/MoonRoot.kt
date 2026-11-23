@@ -282,10 +282,11 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
                 Column(Modifier.fillMaxSize().padding(start = 12.dp, end = 12.dp, top = 10.dp + statusTop * progress, bottom = 8.dp)) {
                     val dragPill = Modifier.holdToDrag(
                         onDelta = { amount ->
-                            lift.snapTo((lift.value - amount / travel).coerceIn(0f, 1f))
+                            val next = (lift.value - amount / travel).coerceIn(0f, 1f)
+                            scope.launch { lift.snapTo(next) }
                         },
                         onEnd = {
-                            lift.animateTo(if (lift.value > 0.32f) 1f else 0f, tween(280, easing = SheetEase))
+                            scope.launch { lift.animateTo(if (lift.value > 0.32f) 1f else 0f, tween(280, easing = SheetEase)) }
                         },
                     )
                     if (progress > 0.45f) {
@@ -363,7 +364,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
 
 private fun spotLabel(price: Double, currency: String) = CompactMoney.price(price, currency)
 
-private fun Modifier.holdToDrag(onDelta: suspend (Float) -> Unit, onEnd: suspend () -> Unit): Modifier = pointerInput(Unit) {
+private fun Modifier.holdToDrag(onDelta: (Float) -> Unit, onEnd: () -> Unit): Modifier = pointerInput(Unit) {
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false)
         val start = down.position
