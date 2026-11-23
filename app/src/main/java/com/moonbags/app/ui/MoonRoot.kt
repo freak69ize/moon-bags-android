@@ -4,8 +4,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
+import androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -99,6 +98,7 @@ import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import com.moonbags.app.data.local.QuoteEntity
 import com.moonbags.app.data.remote.SearchCoinDto
+import com.moonbags.app.data.media.samsungGalleryIntent
 import com.moonbags.app.domain.CompactMoney
 import com.moonbags.app.ui.theme.Brass
 import com.moonbags.app.ui.theme.Down
@@ -657,9 +657,12 @@ private fun StudioPage(state: DeskState, vm: MoonViewModel) {
         runCatching { view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK) }
         block()
     }
-    val picker = rememberLauncherForActivityResult(PickVisualMedia()) { uri ->
+    val context = LocalContext.current
+    val picker = rememberLauncherForActivityResult(StartActivityForResult()) { result ->
+        val uri = result.data?.data ?: return@rememberLauncherForActivityResult
+        if (context.contentResolver.getType(uri)?.contains("gif") == true) return@rememberLauncherForActivityResult
         val config = state.widgets.find { it.appWidgetId == pendingId } ?: state.widgets.firstOrNull()
-        if (uri != null && config != null) vm.importWidgetBackground(config, uri)
+        if (config != null) vm.importWidgetBackground(config, uri)
     }
     ToneControl("Widget outline", settings.widgetBorder) { value -> vm.patch { it.copy(widgetBorder = value) } }
     ToneControl("Widget background", opaque(settings.widgetFill)) { value ->
@@ -709,7 +712,7 @@ private fun StudioPage(state: DeskState, vm: MoonViewModel) {
             onClick = {
                 tap {
                     pendingId = target.appWidgetId
-                    picker.launch(PickVisualMediaRequest(PickVisualMedia.SingleMimeType("image/png")))
+                    picker.launch(samsungGalleryIntent(context))
                 }
             },
             modifier = Modifier.fillMaxWidth(),
@@ -1019,8 +1022,12 @@ private fun SettingsPage(state: DeskState, vm: MoonViewModel, menu: String, onMe
 
 @Composable
 private fun MediaPick(label: String, onUri: (android.net.Uri) -> Unit) {
-    val picker = rememberLauncherForActivityResult(PickVisualMedia()) { uri -> if (uri != null) onUri(uri) }
-    OutlinedButton(onClick = { picker.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly)) }, modifier = Modifier.fillMaxWidth()) {
+    val context = LocalContext.current
+    val picker = rememberLauncherForActivityResult(StartActivityForResult()) { result ->
+        val uri = result.data?.data ?: return@rememberLauncherForActivityResult
+        onUri(uri)
+    }
+    OutlinedButton(onClick = { picker.launch(samsungGalleryIntent(context)) }, modifier = Modifier.fillMaxWidth()) {
         Text(label)
     }
 }

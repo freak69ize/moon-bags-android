@@ -1,14 +1,29 @@
 package com.moonbags.app.data.media
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.provider.MediaStore
 import java.io.File
 import kotlin.math.max
 import kotlin.math.roundToInt
 
 data class StoredMedia(val path: String, val mime: String)
+
+fun samsungGalleryIntent(context: Context, mime: String = "image/*"): Intent {
+    val gallery = Intent(Intent.ACTION_PICK).apply {
+        setDataAndType(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, mime)
+        setPackage("com.sec.android.gallery3d")
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    if (gallery.resolveActivity(context.packageManager) != null) return gallery
+    return Intent(Intent.ACTION_PICK).apply {
+        setDataAndType(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, mime)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+}
 
 /**
  * Copies picked PNG/JPG/GIF files into internal storage so they survive reboots

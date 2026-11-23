@@ -6,7 +6,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
+import androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import com.moonbags.app.MoonBagsApp
 import com.moonbags.app.data.local.QuoteEntity
 import com.moonbags.app.data.local.WidgetConfigEntity
+import com.moonbags.app.data.media.samsungGalleryIntent
 import com.moonbags.app.domain.CompactMoney
 import com.moonbags.app.ui.theme.MoonTheme
 import androidx.compose.foundation.border
@@ -89,10 +90,10 @@ private fun ConfigureForm(appWidgetId: Int, kind: String, onDone: (Boolean) -> U
     val subHex by produceState("#8E8E93") { value = graph.settings.flow.first().subtextColor }
     val sub = runCatching { Color(android.graphics.Color.parseColor(subHex)) }.getOrDefault(Color(0xFF8E8E93))
     val sliderColors = SliderDefaults.colors(thumbColor = sub, activeTrackColor = sub, inactiveTrackColor = sub.copy(alpha = 0.35f))
-    val picker = rememberLauncherForActivityResult(OpenDocument()) { uri ->
-        if (uri != null && context.contentResolver.getType(uri)?.contains("gif") != true) {
-            path = graph.media.import(uri, "widget-$appWidgetId").path
-        }
+    val picker = rememberLauncherForActivityResult(StartActivityForResult()) { result ->
+        val uri = result.data?.data ?: return@rememberLauncherForActivityResult
+        if (context.contentResolver.getType(uri)?.contains("gif") == true) return@rememberLauncherForActivityResult
+        path = graph.media.import(uri, "widget-$appWidgetId").path
     }
     val coin = quotes.find { it.coinId == coinId }
     Column(
@@ -144,7 +145,7 @@ private fun ConfigureForm(appWidgetId: Int, kind: String, onDone: (Boolean) -> U
                 .clip(RoundedCornerShape(radius.toInt().dp))
                 .border(1.dp, Color.White, RoundedCornerShape(radius.toInt().dp)),
         )
-        OutlinedButton(onClick = { picker.launch(arrayOf("image/png", "image/jpeg")) }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) {
+        OutlinedButton(onClick = { picker.launch(samsungGalleryIntent(context)) }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) {
             Text(if (path == null) "Pick PNG or JPG" else "Background ready", color = Color.White)
         }
         Button(
