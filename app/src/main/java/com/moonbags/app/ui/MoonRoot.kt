@@ -687,6 +687,9 @@ private fun StudioPage(state: DeskState, vm: MoonViewModel) {
     ThinSlider("Transparency", (1f - settings.widgetAlpha) * 100f, 0f..100f, slider, sub) { value ->
         vm.patch { it.copy(widgetAlpha = (1f - value / 100f).coerceIn(0f, 1f)) }
     }
+    ThinSlider("Corner roundness", settings.radiusDp.toFloat(), 0f..36f, slider, sub) { value ->
+        vm.patch { it.copy(radiusDp = value.toInt().coerceIn(0, 36)) }
+    }
     Button(onClick = { tap { pickingApp = true } }, modifier = Modifier.fillMaxWidth()) {
         Text(if (settings.tapLabel.isBlank()) "Widget tap opens nothing" else "Widget tap opens ${settings.tapLabel}")
     }
@@ -972,7 +975,7 @@ private fun SettingsPage(state: DeskState, vm: MoonViewModel, menu: String, onMe
             }
             ToneControl("Slider color", settings.sliderColor) { value -> vm.patch { it.copy(sliderColor = value) } }
             ToneControl("Subtext color", settings.subtextColor) { value -> vm.patch { it.copy(subtextColor = value) } }
-            ThinSlider("Corners", settings.radiusDp.toFloat(), 8f..32f, slider, sub) { value -> vm.patch { it.copy(radiusDp = value.toInt()) } }
+            ThinSlider("Corners", settings.radiusDp.toFloat(), 0f..36f, slider, sub) { value -> vm.patch { it.copy(radiusDp = value.toInt().coerceIn(0, 36)) } }
             ThinSlider("Type", settings.fontScale, 0.9f..1.2f, slider, sub) { value -> vm.patch { it.copy(fontScale = value) } }
             MediaPick("Settings background") { uri -> vm.importMedia(uri, "settings") { current, path -> current.copy(settingsPath = path) } }
             if (!settings.settingsPath.isNullOrBlank()) {

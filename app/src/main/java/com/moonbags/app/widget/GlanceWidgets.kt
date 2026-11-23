@@ -100,6 +100,7 @@ data class WidgetSnap(
     val border: Color = Color(0xFFD0BCFF),
     val fill: Color = Color.Transparent,
     val refreshNote: String = "",
+    val cornerDp: Int = 22,
 )
 
 private val Paper = Color(0xFFEFE8DC)
@@ -153,6 +154,7 @@ object WidgetSnapshots {
                 border = runCatching { Color(android.graphics.Color.parseColor(settings.widgetBorder)) }.getOrDefault(Color(0xFFD0BCFF)),
                 fill = runCatching { Color(android.graphics.Color.parseColor(settings.widgetFill)) }.getOrDefault(Color.Transparent),
                 refreshNote = readRefreshNote(context),
+                cornerDp = settings.radiusDp.coerceIn(0, 48),
             )
     }
 }
@@ -272,14 +274,6 @@ fun frameBitmap(width: Int, height: Int, color: Int, stroke: Float, radius: Floa
     return out.freeze()
 }
 
-private fun widgetCornerPx(context: Context): Float {
-    if (android.os.Build.VERSION.SDK_INT >= 31) {
-        val id = context.resources.getIdentifier("system_app_widget_background_radius", "dimen", "android")
-        if (id != 0) return context.resources.getDimension(id)
-    }
-    return 16f * context.resources.displayMetrics.density
-}
-
 private fun acrylicColor(hue: Float, sat: Float, light: Float, alpha: Float): Color {
     val argb = android.graphics.Color.HSVToColor(
         (alpha.coerceIn(0f, 1f) * 255).toInt(),
@@ -357,12 +351,13 @@ private fun clipToWidget(source: Bitmap, width: Int, height: Int, radius: Float)
 }
 
 @Composable
-private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = true, tapBody: Boolean = true, clipBackground: Boolean = false, contentPadding: androidx.compose.ui.unit.Dp = 16.dp, cornerOverridePx: Float? = null, body: @Composable ColumnScope.() -> Unit) {
+private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = true, tapBody: Boolean = true, clipBackground: Boolean = false, contentPadding: androidx.compose.ui.unit.Dp = 16.dp, body: @Composable ColumnScope.() -> Unit) {
     val context = LocalContext.current
     val open = launchAction(context, snap.tapPackage)
     val size = LocalSize.current
     val density = context.resources.displayMetrics.density
-    val cornerPx = cornerOverridePx ?: widgetCornerPx(context)
+    val cornerDp = snap.cornerDp.coerceIn(0, 48)
+    val cornerPx = cornerDp * density
     val widthPx = (size.width.value * density).toInt().coerceAtLeast(8)
     val heightPx = (size.height.value * density).toInt().coerceAtLeast(8)
     val frame = frameBitmap(
@@ -373,7 +368,7 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = 
         cornerPx,
     )
     val plate = snap.background?.let { raw -> clipToWidget(raw, widthPx, heightPx, cornerPx) }
-    Box(modifier = GlanceModifier.fillMaxSize().cornerRadius((cornerPx / density).dp)) {
+    Box(modifier = GlanceModifier.fillMaxSize().cornerRadius(cornerDp.dp)) {
         if (plate != null) {
             Image(provider = ImageProvider(plate), contentDescription = null, modifier = GlanceModifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
         } else if (snap.acrylic && snap.alpha > 0.004f) {

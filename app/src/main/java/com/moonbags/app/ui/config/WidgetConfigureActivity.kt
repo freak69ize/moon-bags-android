@@ -36,7 +36,14 @@ import com.moonbags.app.data.local.QuoteEntity
 import com.moonbags.app.data.local.WidgetConfigEntity
 import com.moonbags.app.domain.CompactMoney
 import com.moonbags.app.ui.theme.MoonTheme
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import com.moonbags.app.widget.WidgetKinds
+import com.moonbags.app.widget.updateAllWidgets
 import com.moonbags.app.widget.updateWidget
 import kotlinx.coroutines.launch
 
@@ -75,6 +82,8 @@ private fun ConfigureForm(appWidgetId: Int, kind: String, onDone: (Boolean) -> U
     var scrim by remember { mutableFloatStateOf(0.55f) }
     var alpha by remember { mutableFloatStateOf(0.7f) }
     var path by remember { mutableStateOf<String?>(null) }
+    val savedRadius by produceState(22) { value = graph.settings.flow.first().radiusDp }
+    var radius by remember(savedRadius) { mutableFloatStateOf(savedRadius.toFloat()) }
     val picker = rememberLauncherForActivityResult(PickVisualMedia()) { uri ->
         if (uri != null) path = graph.media.import(uri, "widget-$appWidgetId").path
     }
@@ -107,12 +116,32 @@ private fun ConfigureForm(appWidgetId: Int, kind: String, onDone: (Boolean) -> U
         Slider(value = 1f - alpha, onValueChange = { alpha = (1f - it).coerceIn(0f, 1f) }, valueRange = 0f..1f)
         Text("Scrim ${(scrim * 100).toInt()}%")
         Slider(value = scrim, onValueChange = { scrim = it }, valueRange = 0f..0.9f)
+        Text("Corner roundness ${radius.toInt()}")
+        Slider(
+            value = radius,
+            onValueChange = { radius = it },
+            valueRange = 0f..36f,
+            onValueChangeFinished = {
+                scope.launch {
+                    graph.settings.update { it.copy(radiusDp = radius.toInt().coerceIn(0, 36)) }
+                    updateAllWidgets(context)
+                }
+            },
+        )
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(72.dp)
+                .clip(RoundedCornerShape(radius.toInt().dp))
+                .border(1.dp, Color.White, RoundedCornerShape(radius.toInt().dp)),
+        )
         OutlinedButton(onClick = { picker.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly)) }, modifier = Modifier.fillMaxWidth()) {
             Text(if (path == null) "Pick PNG, JPG, or GIF" else "Background ready")
         }
         Button(
             onClick = {
                 scope.launch {
+                    graph.settings.update { it.copy(radiusDp = radius.toInt().coerceIn(0, 36)) }
                     graph.db.widgets().upsert(
                         WidgetConfigEntity(
                             appWidgetId = appWidgetId,
