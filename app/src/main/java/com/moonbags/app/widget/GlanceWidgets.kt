@@ -687,18 +687,23 @@ class TogglePrivacyAction : ActionCallback {
 }
 
 suspend fun updateWidget(context: Context, kind: String, appWidgetId: Int) {
+    val themed = context.widgetThemed()
     val widget = widgetFor(kind)
-    val manager = GlanceAppWidgetManager(context)
+    val manager = GlanceAppWidgetManager(themed)
     val match = manager.getGlanceIds(widget.javaClass).firstOrNull { manager.getAppWidgetId(it) == appWidgetId }
-    if (match != null) widget.update(context, match) else widget.updateAll(context)
+    if (match != null) widget.update(themed, match) else widget.updateAll(themed)
 }
 
 suspend fun updateAllWidgets(context: Context) {
+    val themed = context.widgetThemed()
     listOf(WidgetKinds.MCAP, WidgetKinds.TILE, WidgetKinds.PILL, WidgetKinds.SPARK, WidgetKinds.SPARK_BAR, WidgetKinds.WATCH, WidgetKinds.BOOK)
         .forEach { kind ->
-            runCatching { widgetFor(kind).updateAll(context) }
+            runCatching { widgetFor(kind).updateAll(themed) }
         }
 }
+
+private fun Context.widgetThemed(): Context =
+    android.view.ContextThemeWrapper(this, com.moonbags.app.R.style.Theme_MoonBags_Widget)
 
 fun widgetFor(kind: String): GlanceAppWidget = when (kind) {
     WidgetKinds.TILE -> SingleCoinWidget()
@@ -712,6 +717,10 @@ fun widgetFor(kind: String): GlanceAppWidget = when (kind) {
 
 open class MoonWidgetReceiver(private val widget: GlanceAppWidget) : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = widget
+
+    override fun onReceive(context: Context, intent: Intent) {
+        super.onReceive(context.widgetThemed(), intent)
+    }
 
     override fun onDeleted(context: Context, appWidgetIds: IntArray) {
         val pending = goAsync()
