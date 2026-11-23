@@ -8,6 +8,7 @@ import com.moonbags.app.MoonBagsApp
 import com.moonbags.app.widget.PillWidget
 import com.moonbags.app.widget.PortfolioWidget
 import com.moonbags.app.widget.SingleCoinWidget
+import com.moonbags.app.widget.SparklineBarWidget
 import com.moonbags.app.widget.SparklineWidget
 import com.moonbags.app.widget.TotalMarketCapWidget
 import com.moonbags.app.widget.WatchlistWidget
@@ -27,6 +28,7 @@ class PriceSyncWorker(context: Context, params: WorkerParameters) : CoroutineWor
             SingleCoinWidget().updateAll(applicationContext)
             PillWidget().updateAll(applicationContext)
             SparklineWidget().updateAll(applicationContext)
+            SparklineBarWidget().updateAll(applicationContext)
             WatchlistWidget().updateAll(applicationContext)
             PortfolioWidget().updateAll(applicationContext)
             Result.success()

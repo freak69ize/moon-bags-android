@@ -68,12 +68,14 @@ object WidgetKinds {
     const val TILE = "tile"
     const val PILL = "pill"
     const val SPARK = "spark"
+    const val SPARK_BAR = "sparkbar"
     const val WATCH = "watch"
     const val BOOK = "book"
 
     fun fromProvider(className: String): String = when {
         className.endsWith("SingleCoinReceiver") -> TILE
         className.endsWith("PillReceiver") -> PILL
+        className.endsWith("SparklineBarReceiver") -> SPARK_BAR
         className.endsWith("SparklineReceiver") -> SPARK
         className.endsWith("WatchlistReceiver") -> WATCH
         className.endsWith("PortfolioReceiver") -> BOOK
@@ -183,7 +185,7 @@ fun render(
             scrim = config.scrim,
             hidden = hidden,
         )
-        WidgetKinds.PILL, WidgetKinds.SPARK -> WidgetSnap(
+        WidgetKinds.PILL, WidgetKinds.SPARK, WidgetKinds.SPARK_BAR -> WidgetSnap(
             primary = cmcSpot(coin?.price ?: 0.0, currency),
             secondary = CompactMoney.percent(coin?.change24h ?: 0.0),
             up = (coin?.change24h ?: 0.0) >= 0,
@@ -573,6 +575,26 @@ class SparklineWidget : GlanceAppWidget() {
     }
 }
 
+class SparklineBarWidget : GlanceAppWidget() {
+    override suspend fun provideGlance(context: Context, id: GlanceId) {
+        val snap = WidgetSnapshots.load(context, id, WidgetKinds.SPARK_BAR)
+        val chart = sparkBitmap(snap.spark, snap.up)
+        provideContent {
+            val height = LocalSize.current.height
+            val nameSize = when {
+                height < 140.dp -> 18.sp
+                height > 260.dp -> 34.sp
+                else -> 22.sp
+            }
+            Chrome(snap, clipBackground = true) {
+                Text(snap.primary, style = TextStyle(color = ColorProvider(Paper), fontSize = nameSize, fontWeight = FontWeight.Bold))
+                Text(snap.secondary, style = TextStyle(color = ColorProvider(if (snap.up) UpColor else DownColor), fontSize = if (height > 260.dp) 16.sp else 12.sp))
+                Image(provider = ImageProvider(chart), contentDescription = "7 day trend", modifier = GlanceModifier.fillMaxWidth().defaultWeight(), contentScale = ContentScale.FillBounds)
+            }
+        }
+    }
+}
+
 class WatchlistWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val snap = WidgetSnapshots.load(context, id, WidgetKinds.WATCH)
@@ -672,7 +694,7 @@ suspend fun updateWidget(context: Context, kind: String, appWidgetId: Int) {
 }
 
 suspend fun updateAllWidgets(context: Context) {
-    listOf(WidgetKinds.MCAP, WidgetKinds.TILE, WidgetKinds.PILL, WidgetKinds.SPARK, WidgetKinds.WATCH, WidgetKinds.BOOK)
+    listOf(WidgetKinds.MCAP, WidgetKinds.TILE, WidgetKinds.PILL, WidgetKinds.SPARK, WidgetKinds.SPARK_BAR, WidgetKinds.WATCH, WidgetKinds.BOOK)
         .forEach { kind ->
             runCatching { widgetFor(kind).updateAll(context) }
         }
@@ -682,6 +704,7 @@ fun widgetFor(kind: String): GlanceAppWidget = when (kind) {
     WidgetKinds.TILE -> SingleCoinWidget()
     WidgetKinds.PILL -> PillWidget()
     WidgetKinds.SPARK -> SparklineWidget()
+    WidgetKinds.SPARK_BAR -> SparklineBarWidget()
     WidgetKinds.WATCH -> WatchlistWidget()
     WidgetKinds.BOOK -> PortfolioWidget()
     else -> TotalMarketCapWidget()
@@ -706,6 +729,7 @@ class TotalMarketCapReceiver : MoonWidgetReceiver(TotalMarketCapWidget())
 class SingleCoinReceiver : MoonWidgetReceiver(SingleCoinWidget())
 class PillReceiver : MoonWidgetReceiver(PillWidget())
 class SparklineReceiver : MoonWidgetReceiver(SparklineWidget())
+class SparklineBarReceiver : MoonWidgetReceiver(SparklineBarWidget())
 class WatchlistReceiver : MoonWidgetReceiver(WatchlistWidget())
 class PortfolioReceiver : MoonWidgetReceiver(PortfolioWidget())
 

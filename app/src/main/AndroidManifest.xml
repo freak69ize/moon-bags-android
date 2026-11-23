@@ -99,6 +99,19 @@
         </receiver>
 
         <receiver
+            android:name=".widget.SparklineBarReceiver"
+            android:exported="true"
+            android:theme="@style/Theme.MoonBags.Widget"
+            android:label="@string/widget_spark_bar">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/sparkline_bar_widget_info" />
+        </receiver>
+
+        <receiver
             android:name=".widget.WatchlistReceiver"
             android:exported="true"
             android:theme="@style/Theme.MoonBags.Widget"

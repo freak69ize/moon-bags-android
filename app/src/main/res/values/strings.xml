@@ -5,12 +5,14 @@
     <string name="widget_tile">Coin market cap</string>
     <string name="widget_pill">Price pill</string>
     <string name="widget_spark">Sparkline</string>
+    <string name="widget_spark_bar">Sparkline 2×1</string>
     <string name="widget_watch">Watchlist</string>
     <string name="widget_book">Portfolio net worth</string>
     <string name="widget_mcap_desc">Live total crypto market cap and 24 hour change. Resize freely.</string>
     <string name="widget_tile_desc">2 by 1 coin market cap or spot price.</string>
     <string name="widget_pill_desc">Compact coin price and 24 hour change.</string>
     <string name="widget_spark_desc">Coin price with a 7 day trend.</string>
+    <string name="widget_spark_bar_desc">Coin price with a 7 day trend in a 2 by 1 row.</string>
     <string name="widget_watch_desc">Scrollable list of favorite coins.</string>
     <string name="widget_book_desc">Combined bags value with a privacy eye.</string>
 </resources>
