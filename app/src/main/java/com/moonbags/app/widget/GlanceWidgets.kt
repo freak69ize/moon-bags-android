@@ -469,19 +469,31 @@ class TotalMarketCapWidget : GlanceAppWidget() {
 class SingleCoinWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val snap = WidgetSnapshots.load(context, id, WidgetKinds.TILE)
-        val chart = sparkBitmap(snap.spark, snap.up)
+        val chart = sparkBitmap(snap.spark, snap.up, 240, 72, 2f)
         provideContent {
-            Chrome(snap) {
-                Text(snap.title, style = TextStyle(color = ColorProvider(Paper), fontSize = 12.sp, fontWeight = FontWeight.Bold))
-                if (snap.spark.size > 1) {
+            val open = launchAction(LocalContext.current, snap.tapPackage)
+            Chrome(snap, showTitle = false, tapBody = false) {
+                Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    val body = GlanceModifier.defaultWeight().background(ColorProvider(Color.Transparent))
+                    Column(modifier = if (open != null) body.clickable(open) else body) {
+                        Text(snap.title, style = TextStyle(color = ColorProvider(Paper), fontSize = 13.sp, fontWeight = FontWeight.Bold))
+                        Text(snap.primary, style = TextStyle(color = ColorProvider(Brass), fontSize = 12.sp))
+                    }
+                    if (snap.spark.size > 1) {
+                        val chartMod = GlanceModifier.width(84.dp).height(32.dp).background(ColorProvider(Color.Transparent))
+                        Image(
+                            provider = ImageProvider(chart),
+                            contentDescription = "Trend",
+                            modifier = if (open != null) chartMod.clickable(open) else chartMod,
+                            contentScale = ContentScale.FillBounds,
+                        )
+                    }
                     Image(
-                        provider = ImageProvider(chart),
-                        contentDescription = "Trend",
-                        modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
-                        contentScale = ContentScale.FillBounds,
+                        provider = ImageProvider(R.drawable.ic_refresh),
+                        contentDescription = "Refresh",
+                        modifier = GlanceModifier.size(24.dp).background(ColorProvider(Color.Transparent)).clickable(refreshClick()),
                     )
                 }
-                Text(snap.primary, style = TextStyle(color = ColorProvider(Brass), fontSize = 12.sp))
             }
         }
     }

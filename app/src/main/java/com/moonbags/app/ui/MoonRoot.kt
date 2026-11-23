@@ -116,6 +116,17 @@ private val Card = Color(0xFF1C1C1E)
 private val CardFace = Color(0xFF3A3842)
 private val Pill = Color(0xFF2C2C2E)
 private val SheetEase = androidx.compose.animation.core.CubicBezierEasing(0.22f, 0.8f, 0.2f, 1f)
+private val BounceOpen = tween<Float>(280, easing = { android.view.animation.OvershootInterpolator(1.5f).getInterpolation(it) })
+
+@Composable
+private fun BounceIn(content: @Composable () -> Unit) {
+    val scale = remember { Animatable(0.94f) }
+    val overshoot = remember { android.view.animation.OvershootInterpolator(1.5f) }
+    LaunchedEffect(Unit) {
+        scale.animateTo(1f, tween(280, easing = { overshoot.getInterpolation(it) }))
+    }
+    Box(Modifier.fillMaxSize().graphicsLayer { scaleX = scale.value; scaleY = scale.value }) { content() }
+}
 
 @Composable
 fun MoonRoot(vm: MoonViewModel) {
@@ -139,15 +150,19 @@ fun MoonRoot(vm: MoonViewModel) {
             }
             when (page) {
                 Page.Tape -> TapePage(state, vm, onWidgets = { page = Page.Widgets }, onSettings = { page = Page.Settings })
-                Page.Widgets -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(onClick = { page = Page.Tape }) { Text("Close", color = Color.White) }
-                        Text("Widgets", color = Color.White, fontWeight = FontWeight.SemiBold)
-                        Spacer(Modifier.width(48.dp))
+                Page.Widgets -> BounceIn {
+                    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(onClick = { page = Page.Tape }) { Text("Close", color = Color.White) }
+                            Text("Widgets", color = Color.White, fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.width(48.dp))
+                        }
+                        StudioPage(state, vm)
                     }
-                    StudioPage(state, vm)
                 }
-                Page.Settings -> SettingsPage(state, vm, menu, { menu = it }) { page = Page.Tape; menu = "home" }
+                Page.Settings -> BounceIn {
+                    SettingsPage(state, vm, menu, { menu = it }) { page = Page.Tape; menu = "home" }
+                }
             }
         }
     }
@@ -176,6 +191,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
     val lift = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val view = androidx.compose.ui.platform.LocalView.current
     val watch = state.settings.watchIds.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
     Box(Modifier.fillMaxSize().background(Night)) {
         Column(
@@ -190,12 +206,18 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
                     Modifier.clip(CircleShape).background(Pill).padding(horizontal = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Box(Modifier.size(40.dp).clickable(onClick = onWidgets), contentAlignment = Alignment.Center) {
+                    Box(Modifier.size(40.dp).clickable {
+                        view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+                        onWidgets()
+                    }, contentAlignment = Alignment.Center) {
                         Canvas(Modifier.size(20.dp)) {
                             drawCircle(Color.White, style = Stroke(width = 2.dp.toPx()))
                         }
                     }
-                    Box(Modifier.size(40.dp).clickable(onClick = onSettings), contentAlignment = Alignment.Center) {
+                    Box(Modifier.size(40.dp).clickable {
+                        view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+                        onSettings()
+                    }, contentAlignment = Alignment.Center) {
                         Canvas(Modifier.size(20.dp)) {
                             val r = 1.6.dp.toPx()
                             val y = size.height / 2f
@@ -241,7 +263,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
                             scope.launch { lift.snapTo((lift.value - amount / travel).coerceIn(0f, 1f)) }
                         },
                         onEnd = {
-                            scope.launch { lift.animateTo(if (lift.value > 0.32f) 1f else 0f, tween(460, easing = SheetEase)) }
+                            scope.launch { lift.animateTo(if (lift.value > 0.32f) 1f else 0f, if (lift.value > 0.32f) BounceOpen else tween(280, easing = SheetEase)) }
                         },
                     )
                     if (progress > 0.55f) {
@@ -259,7 +281,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
                     } else {
                         Box(
                             Modifier.fillMaxWidth().height(52.dp).clip(CircleShape).background(parseHex(state.settings.searchPillColor)).border(1.dp, Color.White.copy(alpha = state.settings.pillBorderAlpha), CircleShape).then(dragPill).clickable {
-                                scope.launch { lift.animateTo(1f, tween(460, easing = SheetEase)) }
+                                scope.launch { lift.animateTo(1f, BounceOpen) }
                             },
                             contentAlignment = Alignment.Center,
                         ) {
@@ -374,7 +396,9 @@ private fun SearchField(value: String, pill: Color, borderAlpha: Float, drag: Mo
 @Composable
 private fun WatchedRow(quote: QuoteEntity, currency: String, sub: Color, card: Color, onRemove: () -> Unit) {
     var drag by remember(quote.coinId) { mutableFloatStateOf(0f) }
+    var crossed by remember(quote.coinId) { mutableStateOf(false) }
     val reveal = with(androidx.compose.ui.platform.LocalDensity.current) { 96.dp.toPx() }
+    val view = androidx.compose.ui.platform.LocalView.current
     val up = quote.change24h >= 0
     Box(Modifier.fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Min)) {
         if (drag > 1f) {
@@ -400,8 +424,21 @@ private fun WatchedRow(quote: QuoteEntity, currency: String, sub: Color, card: C
                 .padding(horizontal = 12.dp, vertical = 12.dp)
                 .pointerInput(quote.coinId) {
                     detectHorizontalDragGestures(
-                        onDragEnd = { drag = if (drag > reveal * 0.35f) reveal else 0f },
-                        onHorizontalDrag = { _, amount -> drag = (drag + amount).coerceIn(0f, reveal) },
+                        onDragEnd = {
+                            drag = if (drag > reveal * 0.35f) reveal else 0f
+                            if (drag == 0f) crossed = false
+                        },
+                        onHorizontalDrag = { _, amount ->
+                            val next = (drag + amount).coerceIn(0f, reveal)
+                            if (!crossed && next >= reveal * 0.35f) {
+                                crossed = true
+                                view.performHapticFeedback(
+                                    if (Build.VERSION.SDK_INT >= 30) android.view.HapticFeedbackConstants.CONFIRM else android.view.HapticFeedbackConstants.LONG_PRESS,
+                                )
+                            }
+                            if (next < reveal * 0.35f) crossed = false
+                            drag = next
+                        },
                     )
                 },
             verticalAlignment = Alignment.CenterVertically,
