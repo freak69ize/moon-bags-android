@@ -45,6 +45,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.outlined.MoreVert
+import androidx.activity.compose.BackHandler
+import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -116,16 +118,33 @@ private val Card = Color(0xFF1C1C1E)
 private val CardFace = Color(0xFF3A3842)
 private val Pill = Color(0xFF2C2C2E)
 private val SheetEase = androidx.compose.animation.core.CubicBezierEasing(0.22f, 0.8f, 0.2f, 1f)
-private val BounceOpen = tween<Float>(280, easing = { android.view.animation.OvershootInterpolator(1.5f).getInterpolation(it) })
 
 @Composable
-private fun BounceIn(content: @Composable () -> Unit) {
-    val scale = remember { Animatable(0.94f) }
-    val overshoot = remember { android.view.animation.OvershootInterpolator(1.5f) }
-    LaunchedEffect(Unit) {
-        scale.animateTo(1f, tween(280, easing = { overshoot.getInterpolation(it) }))
+private fun BouncyOverlay(opaque: Boolean, onDismissed: () -> Unit, content: @Composable (close: () -> Unit) -> Unit) {
+    var closing by remember { mutableStateOf(false) }
+    val scale = remember { Animatable(0.9f) }
+    val overshoot = remember { android.view.animation.OvershootInterpolator(1.45f) }
+    LaunchedEffect(closing) {
+        if (!closing) {
+            scale.snapTo(0.9f)
+            scale.animateTo(1f, tween(280, easing = { overshoot.getInterpolation(it) }))
+        } else {
+            scale.animateTo(0.9f, tween(260, easing = { overshoot.getInterpolation(it) }))
+            onDismissed()
+        }
     }
-    Box(Modifier.fillMaxSize().graphicsLayer { scaleX = scale.value; scaleY = scale.value }) { content() }
+    val view = androidx.compose.ui.platform.LocalView.current
+    Box(
+        Modifier.fillMaxSize().then(if (opaque) Modifier.background(Night) else Modifier).graphicsLayer {
+            scaleX = scale.value
+            scaleY = scale.value
+        },
+    ) {
+        content {
+            runCatching { view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK) }
+            closing = true
+        }
+    }
 }
 
 @Composable
@@ -150,18 +169,18 @@ fun MoonRoot(vm: MoonViewModel) {
             }
             when (page) {
                 Page.Tape -> TapePage(state, vm, onWidgets = { page = Page.Widgets }, onSettings = { page = Page.Settings })
-                Page.Widgets -> BounceIn {
+                Page.Widgets -> BouncyOverlay(opaque = true, onDismissed = { page = Page.Tape }) { close ->
                     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            TextButton(onClick = { page = Page.Tape }) { Text("Close", color = Color.White) }
+                            TextButton(onClick = close) { Text("Close", color = Color.White) }
                             Text("Widgets", color = Color.White, fontWeight = FontWeight.SemiBold)
                             Spacer(Modifier.width(48.dp))
                         }
                         StudioPage(state, vm)
                     }
                 }
-                Page.Settings -> BounceIn {
-                    SettingsPage(state, vm, menu, { menu = it }) { page = Page.Tape; menu = "home" }
+                Page.Settings -> BouncyOverlay(opaque = state.settings.settingsPath.isNullOrBlank(), onDismissed = { page = Page.Tape; menu = "home" }) { close ->
+                    SettingsPage(state, vm, menu, { menu = it }) { close() }
                 }
             }
         }
@@ -243,14 +262,17 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
                 }
             }
         }
-        BoxWithConstraints(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
-            val progress = lift.value
-            val inset = 12.dp * (1f - progress)
-            val travel = with(LocalDensity.current) { maxHeight.toPx() }.coerceAtLeast(1f)
+        BoxWithConstraints(Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight()) {
+            val progress = lift.value.coerceIn(0f, 1f)
+            val travel = with(LocalDensity.current) { (maxHeight.toPx() * 0.55f).coerceAtLeast(1f) }
             val statusTop = with(LocalDensity.current) { WindowInsets.statusBars.getTop(this).toDp() }
+            BackHandler(enabled = progress > 0.08f) {
+                scope.launch { lift.animateTo(0f, tween(260, easing = SheetEase)) }
+            }
             Box(
                 Modifier
-                    .padding(start = inset, end = inset, bottom = inset)
+                    .align(Alignment.BottomCenter)
+                    .padding(start = 12.dp * (1f - progress), end = 12.dp * (1f - progress), bottom = 12.dp * (1f - progress))
                     .fillMaxWidth()
                     .height(96.dp + (maxHeight - 96.dp) * progress)
                     .clip(RoundedCornerShape(if (progress > 0.92f) 0.dp else 28.dp))
@@ -260,12 +282,22 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
                 Column(Modifier.fillMaxSize().padding(start = 12.dp, end = 12.dp, top = 10.dp + statusTop * progress, bottom = 8.dp)) {
                     val dragPill = Modifier.holdToDrag(
                         onDelta = { amount ->
-                            scope.launch { lift.snapTo((lift.value - amount / travel).coerceIn(0f, 1f)) }
+                            lift.snapTo((lift.value - amount / travel).coerceIn(0f, 1f))
                         },
                         onEnd = {
-                            scope.launch { lift.animateTo(if (lift.value > 0.32f) 1f else 0f, if (lift.value > 0.32f) BounceOpen else tween(280, easing = SheetEase)) }
+                            lift.animateTo(if (lift.value > 0.32f) 1f else 0f, tween(280, easing = SheetEase))
                         },
                     )
+                    if (progress > 0.45f) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(40.dp).clickable {
+                                view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+                                scope.launch { lift.animateTo(0f, tween(260, easing = SheetEase)) }
+                            }, contentAlignment = Alignment.Center) {
+                                Icon(Icons.Outlined.ArrowBack, contentDescription = "Back", tint = Color.White)
+                            }
+                        }
+                    }
                     if (progress > 0.55f) {
                         SearchField(query, parseHex(state.settings.searchPillColor), state.settings.pillBorderAlpha, dragPill, onScan = {
                             val options = GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
@@ -281,7 +313,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
                     } else {
                         Box(
                             Modifier.fillMaxWidth().height(52.dp).clip(CircleShape).background(parseHex(state.settings.searchPillColor)).border(1.dp, Color.White.copy(alpha = state.settings.pillBorderAlpha), CircleShape).then(dragPill).clickable {
-                                scope.launch { lift.animateTo(1f, BounceOpen) }
+                                scope.launch { lift.animateTo(1f, tween(280, easing = SheetEase)) }
                             },
                             contentAlignment = Alignment.Center,
                         ) {
@@ -331,7 +363,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
 
 private fun spotLabel(price: Double, currency: String) = CompactMoney.price(price, currency)
 
-private fun Modifier.holdToDrag(onDelta: (Float) -> Unit, onEnd: () -> Unit): Modifier = pointerInput(Unit) {
+private fun Modifier.holdToDrag(onDelta: suspend (Float) -> Unit, onEnd: suspend () -> Unit): Modifier = pointerInput(Unit) {
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false)
         val start = down.position
@@ -582,6 +614,11 @@ private fun StudioPage(state: DeskState, vm: MoonViewModel) {
     val sub = parseHex(settings.subtextColor)
     var pickingApp by remember { mutableStateOf(false) }
     var pendingId by remember { mutableIntStateOf(-1) }
+    val view = androidx.compose.ui.platform.LocalView.current
+    val tap: (() -> Unit) -> Unit = { block ->
+        runCatching { view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK) }
+        block()
+    }
     val picker = rememberLauncherForActivityResult(PickVisualMedia()) { uri ->
         val config = state.widgets.find { it.appWidgetId == pendingId } ?: state.widgets.firstOrNull()
         if (uri != null && config != null) vm.importWidgetBackground(config, uri)
@@ -595,9 +632,11 @@ private fun StudioPage(state: DeskState, vm: MoonViewModel) {
             FilterChip(
                 selected = false,
                 onClick = {
-                    if (hex == null) vm.patch { it.copy(widgetAlpha = 0f) }
-                    else vm.patch { it.copy(widgetFill = hex, widgetAlpha = if (it.widgetAlpha < 0.04f) 0.72f else it.widgetAlpha) }
-                    state.widgets.firstOrNull()?.let { vm.updateWidgetConfig(it.copy(backgroundPath = null, acrylic = false)) }
+                    tap {
+                        if (hex == null) vm.patch { it.copy(widgetAlpha = 0f) }
+                        else vm.patch { it.copy(widgetFill = hex, widgetAlpha = if (it.widgetAlpha < 0.04f) 0.72f else it.widgetAlpha) }
+                        state.widgets.firstOrNull()?.let { vm.updateWidgetConfig(it.copy(backgroundPath = null, acrylic = false)) }
+                    }
                 },
                 label = { Text(name) },
             )
@@ -605,12 +644,12 @@ private fun StudioPage(state: DeskState, vm: MoonViewModel) {
     }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Text("Tint background", color = Color.White)
-        Switch(checked = settings.widgetTint, onCheckedChange = { checked -> vm.patch { it.copy(widgetTint = checked) } })
+        Switch(checked = settings.widgetTint, onCheckedChange = { checked -> tap { vm.patch { it.copy(widgetTint = checked) } } })
     }
     ThinSlider("Transparency", (1f - settings.widgetAlpha) * 100f, 0f..100f, slider, sub) { value ->
         vm.patch { it.copy(widgetAlpha = (1f - value / 100f).coerceIn(0f, 1f)) }
     }
-    Button(onClick = { pickingApp = true }, modifier = Modifier.fillMaxWidth()) {
+    Button(onClick = { tap { pickingApp = true } }, modifier = Modifier.fillMaxWidth()) {
         Text(if (settings.tapLabel.isBlank()) "Widget tap opens nothing" else "Widget tap opens ${settings.tapLabel}")
     }
     if (pickingApp) {
@@ -623,23 +662,25 @@ private fun StudioPage(state: DeskState, vm: MoonViewModel) {
     val target = state.widgets.firstOrNull()
     if (target != null) {
         if (!target.backgroundPath.isNullOrBlank()) {
-            TextButton(onClick = { vm.updateWidgetConfig(target.copy(backgroundPath = null)) }) { Text("Remove background", color = Color.White) }
+            TextButton(onClick = { tap { vm.updateWidgetConfig(target.copy(backgroundPath = null)) } }) { Text("Remove background", color = Color.White) }
         }
         OutlinedButton(
             onClick = {
-                pendingId = target.appWidgetId
-                picker.launch(PickVisualMediaRequest(PickVisualMedia.SingleMimeType("image/png")))
+                tap {
+                    pendingId = target.appWidgetId
+                    picker.launch(PickVisualMediaRequest(PickVisualMedia.SingleMimeType("image/png")))
+                }
             },
             modifier = Modifier.fillMaxWidth(),
         ) { Text("Add custom background") }
         Button(
-            onClick = { vm.updateWidgetConfig(target.copy(acrylic = !target.acrylic, backgroundPath = if (target.acrylic) target.backgroundPath else null)) },
+            onClick = { tap { vm.updateWidgetConfig(target.copy(acrylic = !target.acrylic, backgroundPath = if (target.acrylic) target.backgroundPath else null)) } },
             modifier = Modifier.fillMaxWidth(),
         ) { Text(if (target.acrylic) "Acrylic background on" else "Acrylic background") }
         if (target.acrylic) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf("Black" to Triple(0f, 0f, 0.08f), "Red" to Triple(4f, 0.72f, 0.32f), "Blue" to Triple(214f, 0.7f, 0.32f), "Green" to Triple(142f, 0.55f, 0.28f)).forEach { (name, tone) ->
-                    FilterChip(selected = false, onClick = { vm.updateWidgetConfig(target.copy(acrylicHue = tone.first, acrylicSat = tone.second, acrylicLight = tone.third)) }, label = { Text(name) })
+                    FilterChip(selected = false, onClick = { tap { vm.updateWidgetConfig(target.copy(acrylicHue = tone.first, acrylicSat = tone.second, acrylicLight = tone.third)) } }, label = { Text(name) })
                 }
             }
             ThinSlider("Hue", target.acrylicHue, 0f..360f, slider, sub) { vm.updateWidgetConfig(target.copy(acrylicHue = it, acrylicSat = if (target.acrylicSat == 0f) 0.6f else target.acrylicSat)) }
@@ -668,7 +709,7 @@ private fun StudioPage(state: DeskState, vm: MoonViewModel) {
         if (config.kind == WidgetKinds.TILE) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Spot price instead of cap", color = Color.White)
-                Switch(checked = config.showPrice, onCheckedChange = { vm.updateWidgetConfig(config.copy(showPrice = it)) })
+                Switch(checked = config.showPrice, onCheckedChange = { checked -> tap { vm.updateWidgetConfig(config.copy(showPrice = checked)) } })
             }
         }
     }
@@ -845,6 +886,7 @@ private fun SettingsPage(state: DeskState, vm: MoonViewModel, menu: String, onMe
     val settings = state.settings
     val sub = parseHex(settings.subtextColor)
     val slider = parseHex(settings.sliderColor)
+    val view = androidx.compose.ui.platform.LocalView.current
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = { if (menu == "home") onClose() else onMenu("home") }) { Text(if (menu == "home") "Close" else "Back", color = Color.White) }
@@ -859,7 +901,10 @@ private fun SettingsPage(state: DeskState, vm: MoonViewModel, menu: String, onMe
                 "tap" to "Widget tap",
                 "keys" to "Exchange keys",
             ).forEach { (id, title) ->
-                Text(title, color = Color.White, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Card).clickable { onMenu(id) }.padding(16.dp))
+                Text(title, color = Color.White, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Card).clickable {
+                    view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+                    onMenu(id)
+                }.padding(16.dp))
             }
         }
         if (menu == "general") {

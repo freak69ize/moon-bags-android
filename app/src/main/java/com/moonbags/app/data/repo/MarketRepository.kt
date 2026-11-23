@@ -13,6 +13,8 @@ import com.moonbags.app.data.security.SecureCredentialStore
 import com.moonbags.app.data.remote.MoonJson
 import com.moonbags.app.domain.AssetIds
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
@@ -105,40 +107,47 @@ class MarketRepository(
         val fiat = currency.lowercase()
         val geckoIds = (watchIds.filter { !it.startsWith("cmc-") && !it.startsWith("dex") } + AssetIds.bySymbol.values).distinct()
         val ids = geckoIds.joinToString(",")
-        val gecko = runCatching { HttpClients.gecko.global().data }.getOrNull()
-        val cmc = cmcGlobal()
-        db.market().upsertGlobal(
-            GlobalEntity(
-                currency = fiat,
-                marketCap = cmc?.first ?: gecko?.totalMarketCap?.get(fiat) ?: gecko?.totalMarketCap?.get("usd") ?: 0.0,
-                volume = cmc?.second ?: gecko?.totalVolume?.get(fiat) ?: gecko?.totalVolume?.get("usd") ?: 0.0,
-                change24h = cmc?.third ?: gecko?.change24h ?: 0.0,
-                updatedAt = System.currentTimeMillis(),
-            ),
-        )
-        val now = System.currentTimeMillis()
-        val caps = cmcCaps()
-        val markets = runCatching { HttpClients.gecko.markets(fiat, ids) }.getOrDefault(emptyList())
-        val overlays = coinbaseOverlays(markets.map { it.symbol.uppercase() }, fiat)
-        if (markets.isNotEmpty()) db.market().upsertQuotes(
-            markets.map { coin ->
-                val symbol = coin.symbol.uppercase()
-                val overlay = overlays[symbol]
-                QuoteEntity(
-                    coinId = coin.id,
-                    symbol = symbol,
-                    name = coin.name,
-                    price = overlay?.price ?: coin.currentPrice ?: 0.0,
-                    marketCap = caps[symbol] ?: coin.marketCap ?: 0.0,
-                    change24h = overlay?.change ?: coin.changeInCurrency ?: coin.change24h ?: 0.0,
-                    sparkline = coin.sparkline?.price?.joinToString(",") { it.toString() }.orEmpty(),
-                    imageUrl = coin.image,
+        coroutineScope {
+            val gecko = async { runCatching { HttpClients.gecko.global().data }.getOrNull() }
+            val cmc = async { cmcGlobal() }
+            val caps = async { cmcCaps() }
+            val markets = async { runCatching { HttpClients.gecko.markets(fiat, ids) }.getOrDefault(emptyList()) }
+            val memes = async { refreshMemes(watchIds, fiat, System.currentTimeMillis()) }
+            val geckoData = gecko.await()
+            val cmcData = cmc.await()
+            db.market().upsertGlobal(
+                GlobalEntity(
                     currency = fiat,
-                    updatedAt = now,
-                )
-            },
-        )
-        refreshMemes(watchIds, fiat, now)
+                    marketCap = cmcData?.first ?: geckoData?.totalMarketCap?.get(fiat) ?: geckoData?.totalMarketCap?.get("usd") ?: 0.0,
+                    volume = cmcData?.second ?: geckoData?.totalVolume?.get(fiat) ?: geckoData?.totalVolume?.get("usd") ?: 0.0,
+                    change24h = cmcData?.third ?: geckoData?.change24h ?: 0.0,
+                    updatedAt = System.currentTimeMillis(),
+                ),
+            )
+            val now = System.currentTimeMillis()
+            val capMap = caps.await()
+            val marketRows = markets.await()
+            val overlays = coinbaseOverlays(marketRows.map { it.symbol.uppercase() }, fiat)
+            if (marketRows.isNotEmpty()) db.market().upsertQuotes(
+                marketRows.map { coin ->
+                    val symbol = coin.symbol.uppercase()
+                    val overlay = overlays[symbol]
+                    QuoteEntity(
+                        coinId = coin.id,
+                        symbol = symbol,
+                        name = coin.name,
+                        price = overlay?.price ?: coin.currentPrice ?: 0.0,
+                        marketCap = capMap[symbol] ?: coin.marketCap ?: 0.0,
+                        change24h = overlay?.change ?: coin.changeInCurrency ?: coin.change24h ?: 0.0,
+                        sparkline = coin.sparkline?.price?.joinToString(",") { it.toString() }.orEmpty(),
+                        imageUrl = coin.image,
+                        currency = fiat,
+                        updatedAt = now,
+                    )
+                },
+            )
+            memes.await()
+        }
     }
 
     suspend fun syncExchanges(): String = withContext(Dispatchers.IO) {
@@ -205,23 +214,22 @@ class MarketRepository(
         )
     }
 
-    private suspend fun coinbaseOverlays(symbols: List<String>, fiat: String): Map<String, Overlay> {
+    private suspend fun coinbaseOverlays(symbols: List<String>, fiat: String): Map<String, Overlay> = coroutineScope {
         val code = fiat.uppercase()
-        val out = mutableMapOf<String, Overlay>()
-        for (symbol in symbols.distinct()) {
-            if (symbol !in AssetIds.coinbaseProducts) continue
-            try {
-                val spot = HttpClients.coinbase.spot("$symbol-$code").data.amount.toDouble()
-                val stats = runCatching { HttpClients.exchange.stats("$symbol-USD") }.getOrNull()
-                val open = stats?.open?.toDoubleOrNull()
-                val last = stats?.last?.toDoubleOrNull() ?: spot
-                val change = if (open != null && open > 0) ((last - open) / open) * 100 else null
-                out[symbol] = Overlay(spot, change)
-            } catch (_: Exception) {
-                // CoinGecko price remains the fallback.
+        symbols.distinct().filter { it in AssetIds.coinbaseProducts }.map { symbol ->
+            async {
+                try {
+                    val spot = HttpClients.coinbase.spot("$symbol-$code").data.amount.toDouble()
+                    val stats = runCatching { HttpClients.exchange.stats("$symbol-USD") }.getOrNull()
+                    val open = stats?.open?.toDoubleOrNull()
+                    val last = stats?.last?.toDoubleOrNull() ?: spot
+                    val change = if (open != null && open > 0) ((last - open) / open) * 100 else null
+                    symbol to Overlay(spot, change)
+                } catch (_: Exception) {
+                    null
+                }
             }
-        }
-        return out
+        }.mapNotNull { it.await() }.toMap()
     }
 
     private data class Overlay(val price: Double, val change: Double?)
@@ -389,15 +397,19 @@ class MarketRepository(
     private suspend fun refreshMemes(watchIds: List<String>, fiat: String, now: Long) {
         val rows = db.market().quotes().filter { it.coinId in watchIds && (it.coinId.startsWith("cmc-") || it.coinId.startsWith("dex")) }
         if (rows.isEmpty()) return
-        val next = rows.map { row ->
-            val fresh = memeLive(row.coinId)
-            row.copy(
-                price = fresh?.price?.takeIf { it > 0 } ?: row.price,
-                change24h = fresh?.change24h ?: row.change24h,
-                imageUrl = logoFor(row.coinId, fresh?.image?.ifBlank { row.imageUrl.orEmpty() } ?: row.imageUrl.orEmpty()).ifBlank { row.imageUrl },
-                currency = fiat,
-                updatedAt = now,
-            )
+        val next = coroutineScope {
+            rows.map { row ->
+                async {
+                    val fresh = memeLive(row.coinId)
+                    row.copy(
+                        price = fresh?.price?.takeIf { it > 0 } ?: row.price,
+                        change24h = fresh?.change24h ?: row.change24h,
+                        imageUrl = logoFor(row.coinId, fresh?.image?.ifBlank { row.imageUrl.orEmpty() } ?: row.imageUrl.orEmpty()).ifBlank { row.imageUrl },
+                        currency = fiat,
+                        updatedAt = now,
+                    )
+                }
+            }.map { it.await() }
         }
         db.market().upsertQuotes(next)
     }

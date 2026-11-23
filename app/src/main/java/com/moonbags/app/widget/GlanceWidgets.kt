@@ -322,21 +322,34 @@ fun sparkBitmap(values: List<Double>, up: Boolean, width: Int = 280, height: Int
     return bitmap.freeze()
 }
 
+private fun clipToWidget(source: Bitmap, width: Int, height: Int, radius: Float): Bitmap {
+    val out = Bitmap.createBitmap(width.coerceAtLeast(8), height.coerceAtLeast(8), Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(out)
+    val path = Path().apply {
+        addRoundRect(RectF(0f, 0f, out.width.toFloat(), out.height.toFloat()), radius, radius, Path.Direction.CW)
+    }
+    canvas.clipPath(path)
+    canvas.drawBitmap(source, null, RectF(0f, 0f, out.width.toFloat(), out.height.toFloat()), Paint(Paint.ANTI_ALIAS_FLAG))
+    return out.freeze()
+}
+
 @Composable
-private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = true, tapBody: Boolean = true, body: @Composable ColumnScope.() -> Unit) {
+private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = true, tapBody: Boolean = true, clipBackground: Boolean = false, contentPadding: androidx.compose.ui.unit.Dp = 16.dp, body: @Composable ColumnScope.() -> Unit) {
     val context = LocalContext.current
     val open = launchAction(context, snap.tapPackage)
     val size = LocalSize.current
     val density = context.resources.displayMetrics.density
     val cornerPx = widgetCornerPx(context)
+    val widthPx = (size.width.value * density).toInt().coerceAtLeast(8)
+    val heightPx = (size.height.value * density).toInt().coerceAtLeast(8)
     val frame = frameBitmap(
-        (size.width.value * density).toInt(),
-        (size.height.value * density).toInt(),
+        widthPx,
+        heightPx,
         android.graphics.Color.argb((snap.border.alpha * 255).toInt().coerceIn(0, 255), (snap.border.red * 255).toInt(), (snap.border.green * 255).toInt(), (snap.border.blue * 255).toInt()),
         1f,
         cornerPx,
     )
-    val plate = snap.background?.freeze()
+    val plate = snap.background?.let { raw -> if (clipBackground) clipToWidget(raw, widthPx, heightPx, cornerPx) else raw.freeze() }
     Box(modifier = GlanceModifier.fillMaxSize().cornerRadius((cornerPx / density).dp)) {
         if (plate != null) {
             Image(provider = ImageProvider(plate), contentDescription = null, modifier = GlanceModifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
@@ -346,7 +359,7 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = 
             Box(modifier = GlanceModifier.fillMaxSize().background(ColorProvider(snap.fill.copy(alpha = snap.alpha)))) {}
         }
         Image(provider = ImageProvider(frame), contentDescription = null, modifier = GlanceModifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
-        Column(modifier = GlanceModifier.fillMaxSize().padding(16.dp)) {
+        Column(modifier = GlanceModifier.fillMaxSize().padding(contentPadding)) {
             if (showTitle) {
                 Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     if (snap.title.isNotBlank()) {
@@ -437,14 +450,15 @@ class TotalMarketCapWidget : GlanceAppWidget() {
                                 fontWeight = FontWeight.Bold,
                             ),
                         )
-                        if (snap.refreshNote.isNotBlank()) {
-                            Text(snap.refreshNote, style = TextStyle(color = ColorProvider(Paper), fontSize = 10.sp))
-                        }
                         Image(
                             provider = ImageProvider(R.drawable.ic_refresh),
                             contentDescription = if (snap.refreshNote.isBlank()) "Refresh" else snap.refreshNote,
-                            modifier = refreshTarget(),
+                            modifier = GlanceModifier.size(24.dp).background(ColorProvider(Color.Transparent)).clickable(refreshClick()),
+                            colorFilter = androidx.glance.ColorFilter.tint(ColorProvider(Color(0xFFE8E6E6).copy(alpha = 0.65f))),
                         )
+                        if (snap.refreshNote.isNotBlank()) {
+                            Text(snap.refreshNote, style = TextStyle(color = ColorProvider(Paper.copy(alpha = 0.65f)), fontSize = 10.sp))
+                        }
                     }
                     Text(
                         snap.secondary + " 24h",
@@ -472,11 +486,12 @@ class SingleCoinWidget : GlanceAppWidget() {
         val chart = sparkBitmap(snap.spark, snap.up, 240, 72, 2f)
         provideContent {
             val open = launchAction(LocalContext.current, snap.tapPackage)
-            Chrome(snap, showTitle = false, tapBody = false) {
+            val tight = LocalSize.current.width < 220.dp
+            Chrome(snap, showTitle = false, tapBody = false, contentPadding = if (tight) 8.dp else 12.dp) {
                 Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     val body = GlanceModifier.defaultWeight().background(ColorProvider(Color.Transparent))
                     Column(modifier = if (open != null) body.clickable(open) else body) {
-                        Text(snap.title, style = TextStyle(color = ColorProvider(Paper), fontSize = 13.sp, fontWeight = FontWeight.Bold))
+                        Text(snap.title, style = TextStyle(color = ColorProvider(Paper), fontSize = if (tight) 11.sp else 13.sp, fontWeight = FontWeight.Bold))
                         Text(snap.primary, style = TextStyle(color = ColorProvider(Brass), fontSize = 12.sp))
                     }
                     if (snap.spark.size > 1) {
@@ -516,7 +531,7 @@ class SparklineWidget : GlanceAppWidget() {
         val snap = WidgetSnapshots.load(context, id, WidgetKinds.SPARK)
         val chart = sparkBitmap(snap.spark, snap.up)
         provideContent {
-            Chrome(snap) {
+            Chrome(snap, clipBackground = true) {
                 Text(snap.primary, style = TextStyle(color = ColorProvider(Paper), fontSize = 22.sp, fontWeight = FontWeight.Bold))
                 Text(snap.secondary, style = TextStyle(color = ColorProvider(if (snap.up) UpColor else DownColor), fontSize = 12.sp))
                 Image(provider = ImageProvider(chart), contentDescription = "7 day trend", modifier = GlanceModifier.fillMaxWidth().defaultWeight(), contentScale = ContentScale.FillBounds)
@@ -559,18 +574,38 @@ class PortfolioWidget : GlanceAppWidget() {
 
 class RefreshAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        context.widgetPulse(done = false)
         writeRefresh(context, "busy", 0L)
-        updateAllWidgets(context)
         try {
-            val graph = (context.applicationContext as MoonBagsApp).graph
-            val settings = graph.settings.flow.first()
-            val ids = settings.watchIds.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-            graph.market.refresh(settings.currency, ids)
+            kotlinx.coroutines.coroutineScope {
+                val painted = kotlinx.coroutines.async { updateAllWidgets(context) }
+                val graph = (context.applicationContext as MoonBagsApp).graph
+                val settings = graph.settings.flow.first()
+                val ids = settings.watchIds.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                graph.market.refresh(settings.currency, ids)
+                painted.await()
+            }
             writeRefresh(context, "ok", System.currentTimeMillis())
+            context.widgetPulse(done = true)
         } catch (_: Exception) {
             writeRefresh(context, "fail", System.currentTimeMillis())
+            context.widgetPulse(done = true)
         }
         updateAllWidgets(context)
+    }
+}
+
+private fun Context.widgetPulse(done: Boolean) {
+    runCatching {
+        val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? android.os.Vibrator ?: return
+        if (!vibrator.hasVibrator()) return
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            val effect = if (done) android.os.VibrationEffect.EFFECT_TICK else android.os.VibrationEffect.EFFECT_CLICK
+            vibrator.vibrate(android.os.VibrationEffect.createPredefined(effect))
+        } else {
+            @Suppress("DEPRECATION")
+            vibrator.vibrate(if (done) 12 else 18)
+        }
     }
 }
 
