@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.Color
 import com.moonbags.app.widget.WidgetKinds
 import com.moonbags.app.widget.updateAllWidgets
 import com.moonbags.app.widget.updateWidget
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class WidgetConfigureActivity : ComponentActivity() {
