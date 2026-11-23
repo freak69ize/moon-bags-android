@@ -461,22 +461,20 @@ class TotalMarketCapWidget : GlanceAppWidget() {
             val chartWidth = 96.dp
             val chart = sparkBitmap(snap.spark, snap.up, (chartWidth.value * density).toInt(), (22f * density).toInt(), 2f)
             Chrome(snap, showTitle = false, tapBody = false, showRefresh = false, contentPadding = 8.dp) {
-                Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    val body = GlanceModifier.defaultWeight()
-                    Column(modifier = if (open != null) body.clickable(open) else body) {
-                        Text(
-                            snap.primary,
-                            style = TextStyle(color = ColorProvider(Paper), fontSize = 14.4.sp, fontWeight = FontWeight.Bold),
-                            maxLines = 1,
-                        )
-                        Text(
-                            snap.secondary + " 24h",
-                            style = TextStyle(color = ColorProvider(if (snap.up) UpColor else DownColor), fontSize = 10.4.sp),
-                            maxLines = 1,
-                        )
-                    }
+                Column(modifier = GlanceModifier.fillMaxSize()) {
+                    val textMod = if (open != null) GlanceModifier.fillMaxWidth().clickable(open) else GlanceModifier.fillMaxWidth()
+                    Text(
+                        snap.primary,
+                        modifier = textMod,
+                        style = TextStyle(color = ColorProvider(Paper), fontSize = 14.4.sp, fontWeight = FontWeight.Bold),
+                    )
+                    Text(
+                        snap.secondary + " 24h",
+                        modifier = if (open != null) GlanceModifier.clickable(open) else GlanceModifier,
+                        style = TextStyle(color = ColorProvider(if (snap.up) UpColor else DownColor), fontSize = 10.4.sp),
+                    )
                     if (snap.spark.size > 1) {
-                        val chartMod = GlanceModifier.width(chartWidth).height(22.dp)
+                        val chartMod = GlanceModifier.width(chartWidth).height(16.dp).padding(top = 2.dp)
                         Image(
                             provider = ImageProvider(chart),
                             contentDescription = "Market trend",
@@ -484,7 +482,21 @@ class TotalMarketCapWidget : GlanceAppWidget() {
                             contentScale = ContentScale.FillBounds,
                         )
                     }
-                    RefreshFoot(snap.refreshNote, wide = false)
+                    Row(
+                        modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
+                        horizontalAlignment = Alignment.End,
+                        verticalAlignment = Alignment.Bottom,
+                    ) {
+                        if (snap.refreshNote.isNotBlank()) {
+                            Text(snap.refreshNote, style = TextStyle(color = ColorProvider(Color(0xFFEFE8DC).copy(alpha = 0.65f)), fontSize = 8.sp))
+                        }
+                        Image(
+                            provider = ImageProvider(R.drawable.ic_refresh),
+                            contentDescription = if (snap.refreshNote.isBlank()) "Refresh" else snap.refreshNote,
+                            modifier = GlanceModifier.size(14.dp).background(ColorProvider(Color.Transparent)).clickable(refreshClick()),
+                            colorFilter = androidx.glance.ColorFilter.tint(ColorProvider(Color(0xFFE8E6E6).copy(alpha = 0.65f))),
+                        )
+                    }
                 }
             }
         }

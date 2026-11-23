@@ -324,9 +324,9 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
             Box(
                 Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(start = 12.dp * (1f - progress), end = 12.dp * (1f - progress))
+                    .padding(start = 12.dp * (1f - progress), end = 12.dp * (1f - progress), bottom = 12.dp * (1f - progress))
                     .width(sheetWidth)
-                    .fillMaxHeight((0.14f + 0.86f * progress).coerceIn(0.14f, 1f))
+                    .height(96.dp + (maxHeight - 96.dp) * progress)
                     .clip(RoundedCornerShape(if (progress > 0.92f) 0.dp else 28.dp))
                     .background(parseHex(state.settings.searchBarColor).copy(alpha = state.settings.searchBarAlpha.coerceIn(0.15f, 1f)))
                     .border(1.dp, Color.White.copy(alpha = state.settings.pillBorderAlpha.coerceIn(0f, 1f)), RoundedCornerShape(if (progress > 0.92f) 0.dp else 28.dp)),
