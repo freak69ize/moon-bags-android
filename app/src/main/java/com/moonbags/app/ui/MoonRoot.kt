@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.statusBars
@@ -170,7 +172,8 @@ fun MoonRoot(vm: MoonViewModel) {
             when (page) {
                 Page.Tape -> TapePage(state, vm, onWidgets = { page = Page.Widgets }, onSettings = { page = Page.Settings })
                 Page.Widgets -> BouncyOverlay(opaque = true, onDismissed = { page = Page.Tape }) { close ->
-                    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                    Column(Modifier.widthIn(max = 760.dp).fillMaxHeight().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             TextButton(onClick = close) { Text("Close", color = Color.White) }
                             Text("Widgets", color = Color.White, fontWeight = FontWeight.SemiBold)
@@ -178,9 +181,12 @@ fun MoonRoot(vm: MoonViewModel) {
                         }
                         StudioPage(state, vm)
                     }
+                    }
                 }
                 Page.Settings -> BouncyOverlay(opaque = state.settings.settingsPath.isNullOrBlank(), onDismissed = { page = Page.Tape; menu = "home" }) { close ->
-                    SettingsPage(state, vm, menu, { menu = it }) { close() }
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                        SettingsPage(state, vm, menu, { menu = it }) { close() }
+                    }
                 }
             }
         }
@@ -213,9 +219,12 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
     val view = androidx.compose.ui.platform.LocalView.current
     val watch = state.settings.watchIds.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
     Box(Modifier.fillMaxSize().background(Night)) {
+        val wide = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 720
         Column(
             Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(bottom = 176.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            Column(Modifier.widthIn(max = 840.dp).fillMaxWidth()) {
             Row(
                 Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -248,23 +257,51 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
                 }
             }
             state.error?.let { Text(it, color = Down, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) }
-            Column(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                val rows = state.quotes.filter { it.coinId in watch }
-                if (rows.isEmpty()) {
-                    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(parseHex(state.settings.cardColor)).padding(vertical = 64.dp), contentAlignment = Alignment.Center) {
-                        Text(if (state.refreshing) "Pulling prices…" else "Search a name or contract to add a coin.", color = sub, fontSize = 14.sp)
+            val rows = state.quotes.filter { it.coinId in watch }
+            if (!wide) {
+                Column(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (rows.isEmpty()) {
+                        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(parseHex(state.settings.cardColor)).padding(vertical = 64.dp), contentAlignment = Alignment.Center) {
+                            Text(if (state.refreshing) "Pulling prices…" else "Search a name or contract to add a coin.", color = sub, fontSize = 14.sp)
+                        }
+                    }
+                    rows.forEach { quote ->
+                        WatchedRow(quote, currency, sub, parseHex(state.settings.cardColor)) {
+                            vm.patch { it.copy(watchIds = watch.filterNot { id -> id == quote.coinId }.joinToString(",")) }
+                        }
                     }
                 }
-                rows.forEach { quote ->
-                    WatchedRow(quote, currency, sub, parseHex(state.settings.cardColor)) {
-                        vm.patch { it.copy(watchIds = watch.filterNot { id -> id == quote.coinId }.joinToString(",")) }
+            } else {
+                Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (rows.isEmpty()) {
+                        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(parseHex(state.settings.cardColor)).padding(vertical = 64.dp), contentAlignment = Alignment.Center) {
+                            Text(if (state.refreshing) "Pulling prices…" else "Search a name or contract to add a coin.", color = sub, fontSize = 14.sp)
+                        }
+                    }
+                    rows.chunked(2).forEach { pair ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            pair.forEach { quote ->
+                                Box(Modifier.weight(1f)) {
+                                    WatchedRow(quote, currency, sub, parseHex(state.settings.cardColor)) {
+                                        vm.patch { it.copy(watchIds = watch.filterNot { id -> id == quote.coinId }.joinToString(",")) }
+                                    }
+                                }
+                            }
+                            if (pair.size == 1) Spacer(Modifier.weight(1f))
+                        }
                     }
                 }
+            }
             }
         }
         BoxWithConstraints(Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight()) {
             val progress = lift.value.coerceIn(0f, 1f)
-            val travel = with(LocalDensity.current) { (maxHeight.toPx() * 0.55f).coerceAtLeast(1f) }
+            val wideSheet = maxWidth >= 600.dp
+            val travel = with(LocalDensity.current) {
+                val span = maxHeight.toPx() * if (wideSheet) 0.28f else 0.55f
+                span.coerceIn(160.dp.toPx(), if (wideSheet) 380.dp.toPx() else maxHeight.toPx())
+            }
+            val sheetWidth = if (wideSheet) minOf(maxWidth * 0.94f, 640.dp) else maxWidth
             val statusTop = with(LocalDensity.current) { WindowInsets.statusBars.getTop(this).toDp() }
             BackHandler(enabled = progress > 0.08f) {
                 scope.launch { lift.animateTo(0f, tween(260, easing = SheetEase)) }
@@ -273,7 +310,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
                 Modifier
                     .align(Alignment.BottomCenter)
                     .padding(start = 12.dp * (1f - progress), end = 12.dp * (1f - progress), bottom = 12.dp * (1f - progress))
-                    .fillMaxWidth()
+                    .width(sheetWidth)
                     .height(96.dp + (maxHeight - 96.dp) * progress)
                     .clip(RoundedCornerShape(if (progress > 0.92f) 0.dp else 28.dp))
                     .background(parseHex(state.settings.searchBarColor).copy(alpha = state.settings.searchBarAlpha.coerceIn(0.15f, 1f)))
@@ -888,7 +925,7 @@ private fun SettingsPage(state: DeskState, vm: MoonViewModel, menu: String, onMe
     val sub = parseHex(settings.subtextColor)
     val slider = parseHex(settings.sliderColor)
     val view = androidx.compose.ui.platform.LocalView.current
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(Modifier.widthIn(max = 760.dp).fillMaxHeight().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = { if (menu == "home") onClose() else onMenu("home") }) { Text(if (menu == "home") "Close" else "Back", color = Color.White) }
             Text(if (menu == "theme") "Theme Settings" else "Settings", color = Color.White, fontWeight = FontWeight.SemiBold)

@@ -349,7 +349,7 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = 
         1f,
         cornerPx,
     )
-    val plate = snap.background?.let { raw -> if (clipBackground) clipToWidget(raw, widthPx, heightPx, cornerPx) else raw.freeze() }
+    val plate = snap.background?.let { raw -> clipToWidget(raw, widthPx, heightPx, cornerPx) }
     Box(modifier = GlanceModifier.fillMaxSize().cornerRadius((cornerPx / density).dp)) {
         if (plate != null) {
             Image(provider = ImageProvider(plate), contentDescription = null, modifier = GlanceModifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
@@ -486,16 +486,23 @@ class SingleCoinWidget : GlanceAppWidget() {
         val chart = sparkBitmap(snap.spark, snap.up, 240, 72, 2f)
         provideContent {
             val open = launchAction(LocalContext.current, snap.tapPackage)
-            val tight = LocalSize.current.width < 220.dp
-            Chrome(snap, showTitle = false, tapBody = false, contentPadding = if (tight) 8.dp else 12.dp) {
+            val size = LocalSize.current
+            val tight = size.width < 220.dp || size.height < 72.dp
+            val roomy = size.width >= 300.dp && size.height >= 84.dp
+            val chartWidth = when {
+                tight -> 72.dp
+                roomy -> 132.dp
+                else -> 84.dp
+            }
+            Chrome(snap, showTitle = false, tapBody = false, contentPadding = if (tight) 8.dp else if (roomy) 14.dp else 12.dp) {
                 Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     val body = GlanceModifier.defaultWeight().background(ColorProvider(Color.Transparent))
                     Column(modifier = if (open != null) body.clickable(open) else body) {
-                        Text(snap.title, style = TextStyle(color = ColorProvider(Paper), fontSize = if (tight) 11.sp else 13.sp, fontWeight = FontWeight.Bold))
-                        Text(snap.primary, style = TextStyle(color = ColorProvider(Brass), fontSize = 12.sp))
+                        Text(snap.title, style = TextStyle(color = ColorProvider(Paper), fontSize = if (tight) 11.sp else if (roomy) 18.sp else 13.sp, fontWeight = FontWeight.Bold))
+                        Text(snap.primary, style = TextStyle(color = ColorProvider(Brass), fontSize = if (roomy) 16.sp else 12.sp))
                     }
                     if (snap.spark.size > 1) {
-                        val chartMod = GlanceModifier.width(84.dp).height(32.dp).background(ColorProvider(Color.Transparent))
+                        val chartMod = GlanceModifier.width(chartWidth).height(if (roomy) 44.dp else 32.dp).background(ColorProvider(Color.Transparent))
                         Image(
                             provider = ImageProvider(chart),
                             contentDescription = "Trend",
@@ -518,9 +525,15 @@ class PillWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val snap = WidgetSnapshots.load(context, id, WidgetKinds.PILL)
         provideContent {
+            val height = LocalSize.current.height
+            val nameSize = when {
+                height < 120.dp -> 18.sp
+                height > 220.dp -> 32.sp
+                else -> 22.sp
+            }
             Chrome(snap) {
-                Text(snap.primary, style = TextStyle(color = ColorProvider(Paper), fontSize = 22.sp, fontWeight = FontWeight.Bold))
-                Text(snap.secondary, style = TextStyle(color = ColorProvider(if (snap.up) UpColor else DownColor), fontSize = 13.sp))
+                Text(snap.primary, style = TextStyle(color = ColorProvider(Paper), fontSize = nameSize, fontWeight = FontWeight.Bold))
+                Text(snap.secondary, style = TextStyle(color = ColorProvider(if (snap.up) UpColor else DownColor), fontSize = if (height > 220.dp) 16.sp else 13.sp))
             }
         }
     }
@@ -531,9 +544,15 @@ class SparklineWidget : GlanceAppWidget() {
         val snap = WidgetSnapshots.load(context, id, WidgetKinds.SPARK)
         val chart = sparkBitmap(snap.spark, snap.up)
         provideContent {
+            val height = LocalSize.current.height
+            val nameSize = when {
+                height < 140.dp -> 18.sp
+                height > 260.dp -> 34.sp
+                else -> 22.sp
+            }
             Chrome(snap, clipBackground = true) {
-                Text(snap.primary, style = TextStyle(color = ColorProvider(Paper), fontSize = 22.sp, fontWeight = FontWeight.Bold))
-                Text(snap.secondary, style = TextStyle(color = ColorProvider(if (snap.up) UpColor else DownColor), fontSize = 12.sp))
+                Text(snap.primary, style = TextStyle(color = ColorProvider(Paper), fontSize = nameSize, fontWeight = FontWeight.Bold))
+                Text(snap.secondary, style = TextStyle(color = ColorProvider(if (snap.up) UpColor else DownColor), fontSize = if (height > 260.dp) 16.sp else 12.sp))
                 Image(provider = ImageProvider(chart), contentDescription = "7 day trend", modifier = GlanceModifier.fillMaxWidth().defaultWeight(), contentScale = ContentScale.FillBounds)
             }
         }
