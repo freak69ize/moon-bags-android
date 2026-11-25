@@ -223,15 +223,15 @@ private fun LaunchSplash(path: String?, onSkip: () -> Unit) {
 }
 
 private fun strongTap(view: android.view.View, context: android.content.Context) {
-    runCatching { view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS) }
+    runCatching { view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK) }
     runCatching {
         val vibrator = context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? android.os.Vibrator ?: return
         if (!vibrator.hasVibrator()) return
         if (android.os.Build.VERSION.SDK_INT >= 26) {
-            vibrator.vibrate(android.os.VibrationEffect.createOneShot(55, 255))
+            vibrator.vibrate(android.os.VibrationEffect.createOneShot(28, 120))
         } else {
             @Suppress("DEPRECATION")
-            vibrator.vibrate(55)
+            vibrator.vibrate(28)
         }
     }
 }
@@ -287,37 +287,25 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
             }
             state.error?.let { Text(it, color = Down, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) }
             val rows = state.quotes.filter { it.coinId in watch }
-            if (!wide) {
-                Column(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (rows.isEmpty()) {
-                        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(parseHex(state.settings.cardColor)).padding(vertical = 64.dp), contentAlignment = Alignment.Center) {
-                            Text(if (state.refreshing) "Pulling prices…" else "Search a name or contract to add a coin.", color = sub, fontSize = 14.sp)
-                        }
-                    }
-                    rows.forEach { quote ->
-                        WatchedRow(quote, currency, sub, parseHex(state.settings.cardColor)) {
-                            vm.patch { it.copy(watchIds = watch.filterNot { id -> id == quote.coinId }.joinToString(",")) }
-                        }
+            val line = parseHex(state.settings.menuLine)
+            val group = Color.Black.copy(alpha = state.settings.menuAlpha.coerceIn(0.05f, 1f))
+            Column(
+                Modifier
+                    .padding(horizontal = if (wide) 16.dp else 12.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(group),
+            ) {
+                if (rows.isEmpty()) {
+                    Box(Modifier.fillMaxWidth().padding(vertical = 64.dp), contentAlignment = Alignment.Center) {
+                        Text(if (state.refreshing) "Pulling prices…" else "Search a name or contract to add a coin.", color = sub, fontSize = 14.sp)
                     }
                 }
-            } else {
-                Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    if (rows.isEmpty()) {
-                        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(parseHex(state.settings.cardColor)).padding(vertical = 64.dp), contentAlignment = Alignment.Center) {
-                            Text(if (state.refreshing) "Pulling prices…" else "Search a name or contract to add a coin.", color = sub, fontSize = 14.sp)
-                        }
+                rows.forEachIndexed { index, quote ->
+                    WatchedRow(quote, currency, sub, group) {
+                        vm.patch { it.copy(watchIds = watch.filterNot { id -> id == quote.coinId }.joinToString(",")) }
                     }
-                    rows.chunked(2).forEach { pair ->
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            pair.forEach { quote ->
-                                Box(Modifier.weight(1f)) {
-                                    WatchedRow(quote, currency, sub, parseHex(state.settings.cardColor)) {
-                                        vm.patch { it.copy(watchIds = watch.filterNot { id -> id == quote.coinId }.joinToString(",")) }
-                                    }
-                                }
-                            }
-                            if (pair.size == 1) Spacer(Modifier.weight(1f))
-                        }
+                    if (index != rows.lastIndex) {
+                        Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(1.dp).background(line))
                     }
                 }
             }
@@ -497,26 +485,24 @@ private fun WatchedRow(quote: QuoteEntity, currency: String, sub: Color, card: C
     val reveal = with(androidx.compose.ui.platform.LocalDensity.current) { 96.dp.toPx() }
     val view = androidx.compose.ui.platform.LocalView.current
     val up = quote.change24h >= 0
-    Box(Modifier.fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Min)) {
+    Box(Modifier.fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Min).clip(RoundedCornerShape(0.dp))) {
         if (drag > 1f) {
             Box(
                 Modifier
                     .align(Alignment.CenterStart)
-                    .width(96.dp)
+                    .width(with(androidx.compose.ui.platform.LocalDensity.current) { drag.toDp() })
                     .fillMaxHeight()
                     .background(Color(0xFFE10600))
                     .clickable(enabled = drag > 24f, onClick = onRemove),
                 contentAlignment = Alignment.Center,
             ) {
-                Text("Delete", color = Color.White, fontSize = 14.sp)
+                Text("Delete", color = Color.White, fontSize = 14.sp, maxLines = 1)
             }
         }
         Row(
             Modifier
                 .fillMaxWidth()
                 .offset { androidx.compose.ui.unit.IntOffset(drag.roundToInt(), 0) }
-                .shadow(10.dp, RoundedCornerShape(28.dp), ambientColor = Color.Black.copy(alpha = 0.45f), spotColor = Color.Black.copy(alpha = 0.45f))
-                .clip(RoundedCornerShape(28.dp))
                 .background(card)
                 .padding(horizontal = 12.dp, vertical = 12.dp)
                 .pointerInput(quote.coinId) {
@@ -691,6 +677,7 @@ private fun StudioPage(state: DeskState, vm: MoonViewModel) {
         val config = state.widgets.find { it.appWidgetId == pendingId } ?: state.widgets.firstOrNull()
         if (config != null) vm.importWidgetBackground(config, uri)
     }
+    SettingPanel(settings.menuAlpha) {
     ToneControl("Widget outline", settings.widgetBorder) { value -> vm.patch { it.copy(widgetBorder = value) } }
     ToneControl("Widget background", opaque(settings.widgetFill)) { value ->
         vm.patch { it.copy(widgetFill = value, widgetAlpha = if (it.widgetAlpha < 0.04f) 0.72f else it.widgetAlpha) }
@@ -783,6 +770,7 @@ private fun StudioPage(state: DeskState, vm: MoonViewModel) {
                 Switch(checked = config.showPrice, onCheckedChange = { checked -> tap { vm.updateWidgetConfig(config.copy(showPrice = checked)) } })
             }
         }
+    }
     }
 }
 
