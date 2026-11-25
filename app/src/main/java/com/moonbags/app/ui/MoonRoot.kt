@@ -180,13 +180,13 @@ fun MoonRoot(vm: MoonViewModel) {
             }
         }
         Box(Modifier.fillMaxSize().background(Night)) {
-            if (page == Page.Settings && !state.settings.settingsPath.isNullOrBlank()) {
+            if (!state.settings.settingsPath.isNullOrBlank()) {
                 AsyncImage(model = File(state.settings.settingsPath), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                 Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = state.settings.settingsDim.coerceIn(0.05f, 0.85f))))
             }
             when (page) {
                 Page.Tape -> TapePage(state, vm, onWidgets = { page = Page.Widgets }, onSettings = { page = Page.Settings })
-                Page.Widgets -> BouncyOverlay(opaque = true, onDismissed = { page = Page.Tape }) { close ->
+                Page.Widgets -> BouncyOverlay(opaque = state.settings.settingsPath.isNullOrBlank(), onDismissed = { page = Page.Tape }) { close ->
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
                     Column(Modifier.widthIn(max = 760.dp).fillMaxHeight().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -247,7 +247,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
     val context = LocalContext.current
     val view = androidx.compose.ui.platform.LocalView.current
     val watch = state.settings.watchIds.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
-    Box(Modifier.fillMaxSize().background(Night)) {
+    Box(Modifier.fillMaxSize()) {
         val wide = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 720
         Column(
             Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(bottom = 176.dp),
