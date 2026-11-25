@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -116,7 +117,6 @@ import java.io.File
 private enum class Page { Tape, Widgets, Settings }
 
 private val Night = Color(0xFF131318)
-private val Card = Color(0xFF1C1C1E)
 private val CardFace = Color(0xFF3A3842)
 private val Pill = Color(0xFF2C2C2E)
 private val SheetEase = androidx.compose.animation.core.CubicBezierEasing(0.22f, 0.8f, 0.2f, 1f)
@@ -164,6 +164,21 @@ fun MoonRoot(vm: MoonViewModel) {
         }
         var page by remember { mutableStateOf(Page.Tape) }
         var menu by remember { mutableStateOf("home") }
+        BackHandler(enabled = page != Page.Tape) {
+            when (page) {
+                Page.Widgets -> page = Page.Tape
+                Page.Settings -> {
+                    val parent = settingsParent(menu)
+                    if (parent == null) {
+                        page = Page.Tape
+                        menu = "home"
+                    } else {
+                        menu = parent
+                    }
+                }
+                else -> Unit
+            }
+        }
         Box(Modifier.fillMaxSize().background(Night)) {
             if (page == Page.Settings && !state.settings.settingsPath.isNullOrBlank()) {
                 AsyncImage(model = File(state.settings.settingsPath), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
@@ -588,15 +603,15 @@ private fun ToneControl(label: String, hex: String, onChange: (String) -> Unit) 
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(label, color = Color.White)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(28.dp).clip(CircleShape).background(color).border(2.dp, Color.White.copy(alpha = 0.7f), CircleShape))
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(56.dp).clip(CircleShape).background(color).border(1.dp, Color(0xFFF0F0F0), CircleShape))
             BasicColors.forEach { swatch ->
                 Box(
                     Modifier
-                        .size(28.dp)
+                        .size(56.dp)
                         .clip(CircleShape)
                         .background(parseHex(swatch))
-                        .border(1.dp, Color.White.copy(alpha = 0.35f), CircleShape)
+                        .border(1.dp, Color(0xFFF0F0F0), CircleShape)
                         .clickable { onChange(swatch) },
                 )
             }
@@ -942,70 +957,117 @@ private fun SettingsPage(state: DeskState, vm: MoonViewModel, menu: String, onMe
     val settings = state.settings
     val sub = parseHex(settings.subtextColor)
     val slider = parseHex(settings.sliderColor)
-    val view = androidx.compose.ui.platform.LocalView.current
+    val line = parseHex(settings.menuLine)
+    val parent = settingsParent(menu)
     Column(Modifier.widthIn(max = 760.dp).fillMaxHeight().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = { if (menu == "home") onClose() else onMenu("home") }) { Text(if (menu == "home") "Close" else "Back", color = Color.White) }
-            Text(if (menu == "theme") "Theme Settings" else "Settings", color = Color.White, fontWeight = FontWeight.SemiBold)
+            TextButton(onClick = { if (parent == null) onClose() else onMenu(parent) }) { Text(if (parent == null) "Close" else "Back", color = Color.White) }
+            Text(settingsTitle(menu), color = Color.White, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.width(48.dp))
         }
         if (menu == "home") {
-            listOf(
-                "general" to "General",
-                "theme" to "Theme Settings",
-                "splash" to "Splash",
-                "tap" to "Widget tap",
-                "keys" to "Exchange keys",
-            ).forEach { (id, title) ->
-                Text(title, color = Color.White, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Card).clickable {
-                    view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
-                    onMenu(id)
-                }.padding(16.dp))
-            }
+            SettingGroup(
+                listOf(
+                    "general" to "General",
+                    "theme" to "Theme Settings",
+                    "splash" to "Splash",
+                    "tap" to "Widget tap",
+                    "keys" to "Exchange keys",
+                ),
+                line,
+                settings.menuAlpha,
+                onMenu,
+            )
         }
         if (menu == "general") {
-            Text("Fiat", color = Color.White)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf("usd", "eur", "gbp", "jpy").forEach { code ->
-                    FilterChip(selected = settings.currency == code, onClick = { vm.patch { it.copy(currency = code) } }, label = { Text(code.uppercase()) })
+            SettingPanel(settings.menuAlpha) {
+                Text("Fiat", color = Color.White)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("usd", "eur", "gbp", "jpy").forEach { code ->
+                        FilterChip(selected = settings.currency == code, onClick = { vm.patch { it.copy(currency = code) } }, label = { Text(code.uppercase()) })
+                    }
                 }
-            }
-            Text("Sync", color = Color.White)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf(15, 30, 60).forEach { minutes ->
-                    FilterChip(selected = settings.intervalMin == minutes, onClick = { vm.patch { it.copy(intervalMin = minutes) } }, label = { Text(if (minutes == 60) "1 hr" else "$minutes m") })
+                Text("Sync", color = Color.White)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(15, 30, 60).forEach { minutes ->
+                        FilterChip(selected = settings.intervalMin == minutes, onClick = { vm.patch { it.copy(intervalMin = minutes) } }, label = { Text(if (minutes == 60) "1 hr" else "$minutes m") })
+                    }
                 }
+                TextButton(onClick = { vm.patch { it.copy(hideBalances = !settings.hideBalances) } }) { Text(if (settings.hideBalances) "Balances hidden" else "Balances visible", color = Color.White) }
             }
-            TextButton(onClick = { vm.patch { it.copy(hideBalances = !settings.hideBalances) } }) { Text(if (settings.hideBalances) "Balances hidden" else "Balances visible", color = Color.White) }
         }
         if (menu == "theme") {
-            ToneControl("Cards", settings.cardColor) { value -> vm.patch { it.copy(cardColor = value) } }
-            ToneControl("Search pill", settings.searchPillColor) { value -> vm.patch { it.copy(searchPillColor = value) } }
-            ToneControl("Search bar", settings.searchBarColor) { value -> vm.patch { it.copy(searchBarColor = value) } }
-            ThinSlider("Search bar transparency", (1f - settings.searchBarAlpha) * 100f, 0f..85f, slider, sub) { value ->
-                vm.patch { it.copy(searchBarAlpha = (1f - value / 100f).coerceIn(0.15f, 1f)) }
+            SettingGroup(
+                listOf(
+                    "theme-cards" to "Cards",
+                    "theme-search" to "Search",
+                    "theme-background" to "Background",
+                    "theme-text" to "Text",
+                    "theme-corners" to "Corners",
+                ),
+                line,
+                settings.menuAlpha,
+                onMenu,
+            )
+        }
+        if (menu == "theme-cards") {
+            SettingPanel(settings.menuAlpha) {
+                ToneControl("Cards", settings.cardColor) { value -> vm.patch { it.copy(cardColor = value) } }
+                ToneControl("Divider", settings.menuLine) { value -> vm.patch { it.copy(menuLine = value) } }
+                ThinSlider("Transparency", (1f - settings.menuAlpha) * 100f, 0f..80f, slider, sub) { value ->
+                    vm.patch { it.copy(menuAlpha = (1f - value / 100f).coerceIn(0.2f, 1f)) }
+                }
             }
-            ThinSlider("Pill border", settings.pillBorderAlpha * 100f, 0f..80f, slider, sub) { value ->
-                vm.patch { it.copy(pillBorderAlpha = (value / 100f).coerceIn(0f, 0.8f)) }
+        }
+        if (menu == "theme-search") {
+            SettingPanel(settings.menuAlpha) {
+                ToneControl("Search pill", settings.searchPillColor) { value -> vm.patch { it.copy(searchPillColor = value) } }
+                ToneControl("Search bar", settings.searchBarColor) { value -> vm.patch { it.copy(searchBarColor = value) } }
+                ThinSlider("Search bar transparency", (1f - settings.searchBarAlpha) * 100f, 0f..85f, slider, sub) { value ->
+                    vm.patch { it.copy(searchBarAlpha = (1f - value / 100f).coerceIn(0.15f, 1f)) }
+                }
+                ThinSlider("Pill border", settings.pillBorderAlpha * 100f, 0f..80f, slider, sub) { value ->
+                    vm.patch { it.copy(pillBorderAlpha = (value / 100f).coerceIn(0f, 0.8f)) }
+                }
             }
-            ToneControl("Slider color", settings.sliderColor) { value -> vm.patch { it.copy(sliderColor = value) } }
-            ToneControl("Subtext color", settings.subtextColor) { value -> vm.patch { it.copy(subtextColor = value) } }
-            ThinSlider("Corners", settings.radiusDp.toFloat(), 0f..36f, slider, sub) { value -> vm.patch { it.copy(radiusDp = value.toInt().coerceIn(0, 36)) } }
-            ThinSlider("Type", settings.fontScale, 0.9f..1.2f, slider, sub) { value -> vm.patch { it.copy(fontScale = value) } }
-            MediaPick("Settings background") { uri -> vm.importMedia(uri, "settings") { current, path -> current.copy(settingsPath = path) } }
-            if (!settings.settingsPath.isNullOrBlank()) {
-                TextButton(onClick = { vm.patch { it.copy(settingsPath = null) } }) { Text("Remove background", color = Color.White) }
+        }
+        if (menu == "theme-background") {
+            SettingPanel(settings.menuAlpha) {
+                MediaPick("Settings background") { uri -> vm.importMedia(uri, "settings") { current, path -> current.copy(settingsPath = path) } }
+                if (!settings.settingsPath.isNullOrBlank()) {
+                    TextButton(onClick = { vm.patch { it.copy(settingsPath = null) } }) { Text("Remove background", color = Color.White) }
+                }
+                ThinSlider("Transparency", settings.settingsDim * 100f, 5f..85f, slider, sub) { value ->
+                    vm.patch { it.copy(settingsDim = (value / 100f).coerceIn(0.05f, 0.85f)) }
+                }
+            }
+        }
+        if (menu == "theme-text") {
+            SettingPanel(settings.menuAlpha) {
+                ToneControl("Slider color", settings.sliderColor) { value -> vm.patch { it.copy(sliderColor = value) } }
+                ToneControl("Subtext color", settings.subtextColor) { value -> vm.patch { it.copy(subtextColor = value) } }
+                ThinSlider("Type", settings.fontScale, 0.9f..1.2f, slider, sub) { value -> vm.patch { it.copy(fontScale = value) } }
+            }
+        }
+        if (menu == "theme-corners") {
+            SettingPanel(settings.menuAlpha) {
+                ThinSlider("Corners", settings.radiusDp.toFloat(), 0f..36f, slider, sub) { value -> vm.patch { it.copy(radiusDp = value.toInt().coerceIn(0, 36)) } }
             }
         }
         if (menu == "splash") {
-            ThinSlider("Splash seconds", settings.splashSeconds.toFloat(), 1f..5f, slider, sub) { value -> vm.patch { it.copy(splashSeconds = value.toInt().coerceIn(1, 5)) } }
-            MediaPick("Splash image or GIF") { uri -> vm.importMedia(uri, "splash") { current, path -> current.copy(splashPath = path) } }
-            TextButton(onClick = { vm.patch { it.copy(splashPath = null) } }) { Text("Reset splash", color = sub) }
+            SettingPanel(settings.menuAlpha) {
+                ThinSlider("Splash seconds", settings.splashSeconds.toFloat(), 1f..5f, slider, sub) { value -> vm.patch { it.copy(splashSeconds = value.toInt().coerceIn(1, 5)) } }
+                MediaPick("Splash image or GIF") { uri -> vm.importMedia(uri, "splash") { current, path -> current.copy(splashPath = path) } }
+                TextButton(onClick = { vm.patch { it.copy(splashPath = null) } }) { Text("Reset splash", color = sub) }
+            }
         }
         if (menu == "tap") {
             var picking by remember { mutableStateOf(false) }
-            Button(onClick = { picking = true }, modifier = Modifier.fillMaxWidth()) {
-                Text(if (settings.tapLabel.isBlank()) "Choose app" else "Opens ${settings.tapLabel}")
+            BackHandler(enabled = picking) { picking = false }
+            SettingPanel(settings.menuAlpha) {
+                Button(onClick = { picking = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (settings.tapLabel.isBlank()) "Choose app" else "Opens ${settings.tapLabel}")
+                }
             }
             if (picking) {
                 AppPicker(onClose = { picking = false }, onPick = { pkg, label ->
@@ -1015,21 +1077,73 @@ private fun SettingsPage(state: DeskState, vm: MoonViewModel, menu: String, onMe
             }
         }
         if (menu == "keys") {
-            Text("Exchange keys stay in the Android Keystore. Disable trading and withdrawals.", color = Down)
-            var cbName by remember { mutableStateOf("") }
-            var cbPem by remember { mutableStateOf("") }
-            var bnKey by remember { mutableStateOf("") }
-            var bnSecret by remember { mutableStateOf("") }
-            OutlinedTextField(cbName, { cbName = it }, label = { Text("Coinbase key name") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(cbPem, { cbPem = it }, label = { Text("Coinbase EC private key PEM") }, modifier = Modifier.fillMaxWidth())
-            Button(onClick = { vm.saveCoinbase(cbName, cbPem); cbPem = "" }, modifier = Modifier.fillMaxWidth()) { Text("Save Coinbase key") }
-            OutlinedTextField(bnKey, { bnKey = it }, label = { Text("Binance read-only key") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(bnSecret, { bnSecret = it }, label = { Text("Binance secret") }, modifier = Modifier.fillMaxWidth())
-            Button(onClick = { vm.saveBinance(bnKey, bnSecret); bnSecret = "" }, modifier = Modifier.fillMaxWidth()) { Text("Save Binance key") }
-            OutlinedButton(onClick = { vm.syncExchanges() }, modifier = Modifier.fillMaxWidth()) { Text("Sync exchange balances") }
-            TextButton(onClick = { vm.clearSecrets() }) { Text("Clear keys") }
+            SettingPanel(settings.menuAlpha) {
+                Text("Exchange keys stay in the Android Keystore. Disable trading and withdrawals.", color = Down)
+                var cbName by remember { mutableStateOf("") }
+                var cbPem by remember { mutableStateOf("") }
+                var bnKey by remember { mutableStateOf("") }
+                var bnSecret by remember { mutableStateOf("") }
+                OutlinedTextField(cbName, { cbName = it }, label = { Text("Coinbase key name") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(cbPem, { cbPem = it }, label = { Text("Coinbase EC private key PEM") }, modifier = Modifier.fillMaxWidth())
+                Button(onClick = { vm.saveCoinbase(cbName, cbPem); cbPem = "" }, modifier = Modifier.fillMaxWidth()) { Text("Save Coinbase key") }
+                OutlinedTextField(bnKey, { bnKey = it }, label = { Text("Binance read-only key") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(bnSecret, { bnSecret = it }, label = { Text("Binance secret") }, modifier = Modifier.fillMaxWidth())
+                Button(onClick = { vm.saveBinance(bnKey, bnSecret); bnSecret = "" }, modifier = Modifier.fillMaxWidth()) { Text("Save Binance key") }
+                OutlinedButton(onClick = { vm.syncExchanges() }, modifier = Modifier.fillMaxWidth()) { Text("Sync exchange balances") }
+                TextButton(onClick = { vm.clearSecrets() }) { Text("Clear keys") }
+            }
         }
     }
+}
+
+private fun settingsParent(menu: String): String? = when {
+    menu == "home" -> null
+    menu.startsWith("theme-") -> "theme"
+    else -> "home"
+}
+
+private fun settingsTitle(menu: String) = when (menu) {
+    "home" -> "Settings"
+    "theme" -> "Theme Settings"
+    "theme-cards" -> "Cards"
+    "theme-search" -> "Search"
+    "theme-background" -> "Background"
+    "theme-text" -> "Text"
+    "theme-corners" -> "Corners"
+    "general" -> "General"
+    "splash" -> "Splash"
+    "tap" -> "Widget tap"
+    "keys" -> "Exchange keys"
+    else -> "Settings"
+}
+
+@Composable
+private fun SettingGroup(items: List<Pair<String, String>>, line: Color, alpha: Float, onClick: (String) -> Unit) {
+    val view = androidx.compose.ui.platform.LocalView.current
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color.Black.copy(alpha = alpha.coerceIn(0.05f, 1f)))) {
+        items.forEachIndexed { index, (id, title) ->
+            Text(
+                title,
+                color = Color.White,
+                modifier = Modifier.fillMaxWidth().clickable {
+                    runCatching { view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK) }
+                    onClick(id)
+                }.padding(16.dp),
+            )
+            if (index != items.lastIndex) {
+                Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(1.dp).background(line))
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingPanel(alpha: Float, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color.Black.copy(alpha = alpha.coerceIn(0.05f, 1f))).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        content = content,
+    )
 }
 
 @Composable

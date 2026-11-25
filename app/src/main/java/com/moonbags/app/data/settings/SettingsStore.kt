@@ -40,6 +40,8 @@ data class UserSettings(
     val searchBarAlpha: Float = 0.72f,
     val pillBorderAlpha: Float = 0.28f,
     val widgetTint: Boolean = true,
+    val menuAlpha: Float = 1f,
+    val menuLine: String = "#3A3A3A",
 )
 
 class SettingsStore(private val context: Context) {
@@ -72,6 +74,8 @@ class SettingsStore(private val context: Context) {
             searchBarAlpha = prefs[Keys.searchBarAlpha] ?: 0.72f,
             pillBorderAlpha = prefs[Keys.pillBorderAlpha] ?: 0.28f,
             widgetTint = prefs[Keys.widgetTint] ?: true,
+            menuAlpha = prefs[Keys.menuAlpha] ?: 1f,
+            menuLine = prefs[Keys.menuLine] ?: "#3A3A3A",
         )
     }
 
@@ -106,6 +110,8 @@ class SettingsStore(private val context: Context) {
                     searchBarAlpha = prefs[Keys.searchBarAlpha] ?: 0.72f,
                     pillBorderAlpha = prefs[Keys.pillBorderAlpha] ?: 0.28f,
                     widgetTint = prefs[Keys.widgetTint] ?: true,
+                    menuAlpha = prefs[Keys.menuAlpha] ?: 1f,
+                    menuLine = prefs[Keys.menuLine] ?: "#3A3A3A",
                 ),
             )
             prefs[Keys.currency] = next.currency
@@ -135,6 +141,8 @@ class SettingsStore(private val context: Context) {
             prefs[Keys.searchBarAlpha] = next.searchBarAlpha
             prefs[Keys.pillBorderAlpha] = next.pillBorderAlpha
             prefs[Keys.widgetTint] = next.widgetTint
+            prefs[Keys.menuAlpha] = next.menuAlpha
+            prefs[Keys.menuLine] = next.menuLine
         }
     }
 
@@ -166,5 +174,7 @@ class SettingsStore(private val context: Context) {
         val searchBarAlpha = floatPreferencesKey("search_bar_alpha")
         val pillBorderAlpha = floatPreferencesKey("pill_border_alpha")
         val widgetTint = booleanPreferencesKey("widget_tint")
+        val menuAlpha = floatPreferencesKey("menu_alpha")
+        val menuLine = stringPreferencesKey("menu_line")
     }
 }
