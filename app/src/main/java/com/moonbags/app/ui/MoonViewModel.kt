@@ -192,6 +192,8 @@ class MoonViewModel(app: Application) : AndroidViewModel(app) {
 
     suspend fun search(query: String): List<SearchCoinDto> = graph.market.searchTape(query)
 
+    suspend fun coinStats(hit: SearchCoinDto) = graph.market.coinStats(hit)
+
     suspend fun searchMemes(query: String, chain: String): List<SearchCoinDto> = graph.market.searchMemes(query, chain)
 
     fun addWatched(hit: SearchCoinDto) = launchIo("Added ${hit.symbol}") {

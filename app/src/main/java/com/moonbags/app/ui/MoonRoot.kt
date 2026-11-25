@@ -38,6 +38,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -76,6 +77,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
@@ -242,7 +245,11 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
     val sub = parseHex(state.settings.subtextColor)
     var query by remember { mutableStateOf("") }
     var hits by remember { mutableStateOf<List<SearchCoinDto>>(emptyList()) }
+    var detail by remember { mutableStateOf<SearchCoinDto?>(null) }
     var lift by remember { mutableFloatStateOf(0f) }
+    var draggingId by remember { mutableStateOf<String?>(null) }
+    var dragDy by remember { mutableFloatStateOf(0f) }
+    var order by remember { mutableStateOf(listOf<String>()) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val view = androidx.compose.ui.platform.LocalView.current
@@ -250,7 +257,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
     Box(Modifier.fillMaxSize()) {
         val wide = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 720
         Column(
-            Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(bottom = 176.dp),
+            Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState(), enabled = draggingId == null).padding(bottom = 176.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Column(Modifier.widthIn(max = 840.dp).fillMaxWidth()) {
@@ -287,24 +294,68 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
             }
             state.error?.let { Text(it, color = Down, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) }
             val rows = state.quotes.filter { it.coinId in watch }
+            LaunchedEffect(rows.joinToString { it.coinId }) {
+                val ids = rows.map { it.coinId }
+                order = if (order.isEmpty()) ids else ids.sortedBy { id -> order.indexOf(id).let { if (it < 0) Int.MAX_VALUE else it } }
+            }
+            val shown = order.mapNotNull { id -> rows.find { it.coinId == id } }
             val line = parseHex(state.settings.menuLine)
-            val group = Color.Black.copy(alpha = state.settings.menuAlpha.coerceIn(0.05f, 1f))
+            val group = parseHex(state.settings.cardColor).copy(alpha = state.settings.menuAlpha.coerceIn(0.2f, 1f))
+            val rowPx = with(LocalDensity.current) { 76.dp.toPx() }
+            fun moveCoin(id: String, deltaY: Float) {
+                val list = order.toMutableList()
+                var index = list.indexOf(id)
+                var delta = dragDy + deltaY
+                if (index < 0) return
+                while (delta > rowPx * 0.5f && index < list.lastIndex) {
+                    val next = list[index + 1]
+                    list[index + 1] = list[index]
+                    list[index] = next
+                    index += 1
+                    delta -= rowPx
+                }
+                while (delta < -rowPx * 0.5f && index > 0) {
+                    val prev = list[index - 1]
+                    list[index - 1] = list[index]
+                    list[index] = prev
+                    index -= 1
+                    delta += rowPx
+                }
+                order = list
+                dragDy = delta
+            }
             Column(
                 Modifier
                     .padding(horizontal = if (wide) 16.dp else 12.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(group),
+                    .then(if (draggingId == null) Modifier.clip(RoundedCornerShape(16.dp)).clipToBounds() else Modifier)
+                    .background(group, RoundedCornerShape(16.dp)),
             ) {
-                if (rows.isEmpty()) {
+                if (shown.isEmpty()) {
                     Box(Modifier.fillMaxWidth().padding(vertical = 64.dp), contentAlignment = Alignment.Center) {
                         Text(if (state.refreshing) "Pulling prices…" else "Search a name or contract to add a coin.", color = sub, fontSize = 14.sp)
                     }
                 }
-                rows.forEachIndexed { index, quote ->
-                    WatchedRow(quote, currency, sub, group) {
-                        vm.patch { it.copy(watchIds = watch.filterNot { id -> id == quote.coinId }.joinToString(",")) }
-                    }
-                    if (index != rows.lastIndex) {
+                shown.forEachIndexed { index, quote ->
+                    val dragging = draggingId == quote.coinId
+                    WatchedRow(
+                        quote,
+                        currency,
+                        sub,
+                        group,
+                        dragging = dragging,
+                        lift = if (dragging) dragDy else 0f,
+                        onRemove = {
+                            vm.patch { it.copy(watchIds = watch.filterNot { id -> id == quote.coinId }.joinToString(",")) }
+                        },
+                        onGrab = { draggingId = quote.coinId; dragDy = 0f },
+                        onSlide = { moveCoin(quote.coinId, it) },
+                        onDrop = {
+                            draggingId = null
+                            dragDy = 0f
+                            vm.patch { it.copy(watchIds = order.joinToString(",")) }
+                        },
+                    )
+                    if (index != shown.lastIndex) {
                         Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(1.dp).background(line))
                     }
                 }
@@ -323,23 +374,25 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
                     anim.animateTo(target, tween(ms, easing = SheetEase)) { lift = value }
                 }
             }
-            BackHandler(enabled = progress > 0.08f) { glide(0f, 260) }
+            BackHandler(enabled = detail != null || progress > 0.08f) {
+                if (detail != null) detail = null else glide(0f, 260)
+            }
             Box(
                 Modifier
                     .align(Alignment.BottomCenter)
                     .padding(start = 12.dp * (1f - progress), end = 12.dp * (1f - progress), bottom = 12.dp * (1f - progress))
                     .width(sheetWidth)
-                    .height(96.dp + (maxHeight - 96.dp) * progress)
+                    .height(76.dp + (maxHeight - 76.dp) * progress)
                     .clip(RoundedCornerShape(if (progress > 0.92f) 0.dp else 28.dp))
                     .background(parseHex(state.settings.searchBarColor).copy(alpha = state.settings.searchBarAlpha.coerceIn(0.15f, 1f)))
                     .border(1.dp, Color.White.copy(alpha = state.settings.pillBorderAlpha.coerceIn(0f, 1f)), RoundedCornerShape(if (progress > 0.92f) 0.dp else 28.dp)),
             ) {
-                Column(Modifier.fillMaxSize().padding(start = 12.dp, end = 12.dp, top = 10.dp + statusTop * progress, bottom = 8.dp)) {
+                Column(Modifier.fillMaxSize().padding(start = 12.dp, end = 12.dp, top = 12.dp + statusTop * progress, bottom = 12.dp)) {
                     val dragPill = Modifier.holdToDrag(
                         onDelta = { amount ->
-                            lift = (lift - (amount / travel) * 2.6f).coerceIn(0f, 1f)
+                            if (amount < -6f) glide(1f) else if (amount > 0f) lift = (lift - amount / travel).coerceIn(0f, 1f)
                         },
-                        onEnd = { glide(if (lift > 0.16f) 1f else 0f) },
+                        onEnd = { if (lift < 0.98f) glide(if (lift > 0.08f) 1f else 0f) },
                     )
                     if (progress > 0.45f) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -381,12 +434,13 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
                             }
                             hits.forEach { hit ->
                                 Row(
-                                    Modifier.fillMaxWidth().clickable {
-                                        vm.addWatched(hit)
-                                        query = ""
-                                        hits = emptyList()
-                                        glide(0f, 420)
-                                    }.padding(vertical = 10.dp),
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 10.dp)
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(parseHex(state.settings.cardColor).copy(alpha = state.settings.menuAlpha.coerceIn(0.2f, 1f)))
+                                        .clickable { detail = hit }
+                                        .padding(12.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     Box(Modifier.size(44.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHigh), contentAlignment = Alignment.Center) {
@@ -410,6 +464,18 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
                     }
                 }
             }
+        }
+        detail?.let { hit ->
+            CoinDetailPage(hit, currency, vm, onBack = { detail = null }, onAdd = {
+                vm.addWatched(hit)
+                detail = null
+                query = ""
+                hits = emptyList()
+                scope.launch {
+                    val anim = Animatable(lift)
+                    anim.animateTo(0f, tween(260, easing = SheetEase)) { lift = value }
+                }
+            })
         }
     }
 }
@@ -479,18 +545,45 @@ private fun SearchField(value: String, pill: Color, borderAlpha: Float, drag: Mo
 }
 
 @Composable
-private fun WatchedRow(quote: QuoteEntity, currency: String, sub: Color, card: Color, onRemove: () -> Unit) {
+private fun WatchedRow(
+    quote: QuoteEntity,
+    currency: String,
+    sub: Color,
+    card: Color,
+    dragging: Boolean,
+    lift: Float,
+    onRemove: () -> Unit,
+    onGrab: () -> Unit,
+    onSlide: (Float) -> Unit,
+    onDrop: () -> Unit,
+) {
     var drag by remember(quote.coinId) { mutableFloatStateOf(0f) }
     var crossed by remember(quote.coinId) { mutableStateOf(false) }
     val reveal = with(androidx.compose.ui.platform.LocalDensity.current) { 96.dp.toPx() }
     val view = androidx.compose.ui.platform.LocalView.current
     val up = quote.change24h >= 0
-    Box(Modifier.fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Min).clip(RoundedCornerShape(0.dp))) {
-        if (drag > 1f) {
+    val shape = if (dragging) RoundedCornerShape(16.dp) else RoundedCornerShape(0.dp)
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .zIndex(if (dragging) 2f else 0f)
+            .graphicsLayer {
+                translationY = lift
+                val scale = if (dragging) 1.04f else 1f
+                scaleX = scale
+                scaleY = scale
+                shadowElevation = if (dragging) 18.dp.toPx() else 0f
+                this.shape = shape
+                clip = dragging
+            }
+            .height(androidx.compose.foundation.layout.IntrinsicSize.Min)
+            .clip(shape),
+    ) {
+        if (!dragging && drag > 1f) {
             Box(
                 Modifier
                     .align(Alignment.CenterStart)
-                    .width(with(androidx.compose.ui.platform.LocalDensity.current) { drag.toDp() })
+                    .width(with(androidx.compose.ui.platform.LocalDensity.current) { drag.toDp().coerceAtMost(96.dp) })
                     .fillMaxHeight()
                     .background(Color(0xFFE10600))
                     .clickable(enabled = drag > 24f, onClick = onRemove),
@@ -502,10 +595,21 @@ private fun WatchedRow(quote: QuoteEntity, currency: String, sub: Color, card: C
         Row(
             Modifier
                 .fillMaxWidth()
-                .offset { androidx.compose.ui.unit.IntOffset(drag.roundToInt(), 0) }
-                .background(card)
+                .offset { androidx.compose.ui.unit.IntOffset(if (dragging) 0 else drag.roundToInt(), 0) }
+                .background(card, shape)
                 .padding(horizontal = 12.dp, vertical = 12.dp)
                 .pointerInput(quote.coinId) {
+                    detectDragGesturesAfterLongPress(
+                        onDragStart = { onGrab() },
+                        onDragEnd = onDrop,
+                        onDragCancel = onDrop,
+                    ) { change, amount ->
+                        change.consume()
+                        onSlide(amount.y)
+                    }
+                }
+                .pointerInput(quote.coinId, dragging) {
+                    if (dragging) return@pointerInput
                     detectHorizontalDragGestures(
                         onDragEnd = {
                             drag = if (drag > reveal * 0.35f) reveal else 0f
@@ -566,6 +670,122 @@ private fun MiniSpark(raw: String, up: Boolean, modifier: Modifier) {
 }
 
 private fun tapePrice(price: Double, currency: String) = CompactMoney.price(price, currency)
+
+@Composable
+private fun CoinDetailPage(hit: SearchCoinDto, currency: String, vm: MoonViewModel, onBack: () -> Unit, onAdd: () -> Unit) {
+    var stats by remember(hit.id) { mutableStateOf<com.moonbags.app.data.repo.CoinStats?>(null) }
+    var candles by remember(hit.id) { mutableStateOf(false) }
+    var capAxis by remember(hit.id) { mutableStateOf(false) }
+    var scrub by remember(hit.id) { mutableFloatStateOf(-1f) }
+    LaunchedEffect(hit.id) { stats = runCatching { vm.coinStats(hit) }.getOrNull() }
+    val price = stats?.price?.takeIf { it > 0 } ?: hit.price
+    val cap = stats?.marketCap?.takeIf { it > 0 } ?: hit.marketCap
+    val series = when {
+        capAxis && !stats?.caps.isNullOrEmpty() -> stats?.caps.orEmpty()
+        !stats?.prices.isNullOrEmpty() -> stats?.prices.orEmpty()
+        else -> hit.spark.split(",").mapNotNull { it.toDoubleOrNull() }
+    }
+    val scrubIndex = if (scrub < 0f || series.isEmpty()) -1 else (scrub * (series.size - 1)).toInt().coerceIn(0, series.lastIndex)
+    Column(Modifier.fillMaxSize().background(Color(0xFF0E0E10)).statusBarsPadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onBack) { Text("Back", color = Color.White) }
+            Column(Modifier.weight(1f)) {
+                Text(hit.name, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(hit.symbol.uppercase(), color = Color(0xFF8E8E93), fontSize = 13.sp)
+            }
+            TextButton(onClick = onAdd) { Text("Add", color = Color.White) }
+        }
+        Text(if (capAxis) CompactMoney.format(if (scrubIndex >= 0) series[scrubIndex] else cap, currency) else CompactMoney.price(if (scrubIndex >= 0) series[scrubIndex] else price, currency), color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Bold)
+        Text((if (hit.change24h >= 0) "+" else "") + String.format("%.2f%%", hit.change24h), color = if (hit.change24h >= 0) Color(0xFF3DDC84) else Color(0xFFFF6B81))
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = !candles, onClick = { candles = false }, label = { Text("Line") })
+            FilterChip(selected = candles, onClick = { candles = true }, label = { Text("Candles") })
+            FilterChip(selected = !capAxis, onClick = { capAxis = false }, label = { Text("Price") })
+            FilterChip(selected = capAxis, onClick = { capAxis = true }, label = { Text("Market cap") })
+        }
+        DetailChart(series, hit.change24h >= 0, candles, scrub) { scrub = it }
+        StatRow("Market cap", CompactMoney.format(cap, currency))
+        StatRow("24h volume", if ((stats?.volume ?: 0.0) > 0) CompactMoney.format(stats?.volume ?: 0.0, currency) else "—")
+        StatRow("Circulating supply", if ((stats?.circulating ?: 0.0) > 0) CompactMoney.format(stats?.circulating ?: 0.0, "usd").removePrefix("$") else "—")
+        StatRow("All-time high", if ((stats?.ath ?: 0.0) > 0) CompactMoney.price(stats?.ath ?: 0.0, currency) else "—")
+        StatRow("Trading activity", stats?.activity ?: "—")
+        StatRow("Typical hold time", stats?.holdTime ?: "—")
+        StatRow("Popularity", if ((stats?.rank ?: 0) > 0) "#${stats?.rank}" else "—")
+        StatRow("Mintable", stats?.mintable ?: "—")
+        StatRow("Holders", stats?.holders ?: "—")
+        StatRow("Network", stats?.network?.ifBlank { hit.chain }?.ifBlank { "—" } ?: "—")
+        StatRow("Contract", stats?.contract?.ifBlank { "—" } ?: "—")
+    }
+}
+
+@Composable
+private fun StatRow(label: String, value: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = Color(0xFF8E8E93), fontSize = 14.sp, modifier = Modifier.weight(1f))
+        Text(value, color = Color.White, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun DetailChart(values: List<Double>, up: Boolean, candles: Boolean, scrub: Float, onScrub: (Float) -> Unit) {
+    val color = if (up) Color(0xFF3DDC84) else Color(0xFFFF6B81)
+    Canvas(
+        Modifier
+            .fillMaxWidth()
+            .height(280.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0xFF16161A))
+            .pointerInput(values) {
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    onScrub((down.position.x / size.width).coerceIn(0f, 1f))
+                    drag(down.id) { change ->
+                        onScrub((change.position.x / size.width).coerceIn(0f, 1f))
+                        change.consume()
+                    }
+                }
+            },
+    ) {
+        if (values.size < 2) return@Canvas
+        val min = values.min()
+        val max = values.max().let { if (it == min) it + 1 else it }
+        val left = 8.dp.toPx()
+        val right = size.width - 8.dp.toPx()
+        val top = 12.dp.toPx()
+        val bottom = size.height - 12.dp.toPx()
+        fun yOf(value: Double) = bottom - ((value - min) / (max - min)).toFloat() * (bottom - top)
+        if (!candles) {
+            val path = androidx.compose.ui.graphics.Path()
+            values.forEachIndexed { index, value ->
+                val x = left + index / (values.size - 1f) * (right - left)
+                val y = yOf(value)
+                if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            }
+            drawPath(path, color, style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
+        } else {
+            val group = (values.size / 28).coerceAtLeast(1)
+            val chunks = values.chunked(group)
+            val slot = (right - left) / chunks.size.coerceAtLeast(1)
+            chunks.forEachIndexed { index, chunk ->
+                val open = chunk.first()
+                val close = chunk.last()
+                val high = chunk.max()
+                val low = chunk.min()
+                val x = left + index * slot + slot / 2f
+                val rising = close >= open
+                val paint = if (rising) Color(0xFF3DDC84) else Color(0xFFFF6B81)
+                drawLine(paint, Offset(x, yOf(high)), Offset(x, yOf(low)), strokeWidth = 1.5.dp.toPx())
+                val bodyTop = yOf(maxOf(open, close))
+                val bodyBottom = yOf(minOf(open, close)).coerceAtLeast(bodyTop + 1f)
+                drawRect(paint, topLeft = Offset(x - slot * 0.28f, bodyTop), size = androidx.compose.ui.geometry.Size(slot * 0.56f, bodyBottom - bodyTop))
+            }
+        }
+        if (scrub >= 0f) {
+            val x = left + scrub.coerceIn(0f, 1f) * (right - left)
+            drawLine(Color.White.copy(alpha = 0.7f), Offset(x, top), Offset(x, bottom), strokeWidth = 1.dp.toPx())
+        }
+    }
+}
 
 private fun parseHex(hex: String): Color = runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrDefault(Color(0xFF8E8E93))
 

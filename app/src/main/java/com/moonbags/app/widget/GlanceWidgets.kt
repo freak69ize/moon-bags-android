@@ -41,10 +41,12 @@ import androidx.glance.layout.Column
 import androidx.glance.layout.ColumnScope
 import androidx.glance.layout.ContentScale
 import androidx.glance.layout.Row
+import androidx.glance.layout.defaultWeight
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
 import androidx.glance.layout.padding
+import androidx.glance.layout.Spacer
 import androidx.glance.layout.size
 import androidx.glance.layout.width
 import androidx.glance.text.FontWeight
@@ -280,9 +282,7 @@ fun frameBitmap(width: Int, height: Int, color: Int, stroke: Float, radius: Floa
         strokeWidth = stroke
         this.color = color
         strokeJoin = Paint.Join.ROUND
-    })
-    canvas.drawRect(0f, out.height - stroke / 2f, out.width.toFloat(), out.height.toFloat(), Paint().apply {
-        xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
+        strokeCap = Paint.Cap.ROUND
     })
     return out.freeze()
 }
@@ -373,11 +373,12 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = 
     val cornerPx = cornerDp * density
     val widthPx = (size.width.value * density).toInt().coerceAtLeast(8)
     val heightPx = (size.height.value * density).toInt().coerceAtLeast(8)
+    val stroke = 3f * density
     val frame = frameBitmap(
         widthPx,
         heightPx,
         android.graphics.Color.argb((snap.border.alpha * 255).toInt().coerceIn(0, 255), (snap.border.red * 255).toInt(), (snap.border.green * 255).toInt(), (snap.border.blue * 255).toInt()),
-        1f,
+        stroke,
         cornerPx,
     )
     val plate = snap.background?.let { raw -> clipToWidget(raw, widthPx, heightPx, cornerPx) }
@@ -435,16 +436,16 @@ private fun privacyClick() = actionRunCallback<TogglePrivacyAction>()
 private fun RefreshFoot(note: String, wide: Boolean = true) {
     Row(
         modifier = if (wide) GlanceModifier.fillMaxWidth() else GlanceModifier,
-        horizontalAlignment = Alignment.End,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (note.isNotBlank()) {
             Text(note, style = TextStyle(color = ColorProvider(Color(0xFFEFE8DC).copy(alpha = 0.65f)), fontSize = 10.sp))
         }
+        if (wide) Spacer(modifier = GlanceModifier.defaultWeight())
         Image(
             provider = ImageProvider(R.drawable.ic_refresh),
             contentDescription = if (note.isBlank()) "Refresh" else note,
-            modifier = GlanceModifier.size(24.dp).background(ColorProvider(Color.Transparent)).clickable(refreshClick()),
+            modifier = GlanceModifier.size(18.dp).background(ColorProvider(Color.Transparent)).clickable(refreshClick()),
             colorFilter = androidx.glance.ColorFilter.tint(ColorProvider(Color(0xFFE8E6E6).copy(alpha = 0.65f))),
         )
     }
@@ -456,43 +457,45 @@ class TotalMarketCapWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val snap = WidgetSnapshots.load(context, id, WidgetKinds.MCAP)
         provideContent {
+            val size = LocalSize.current
             val density = LocalContext.current.resources.displayMetrics.density
             val open = launchAction(LocalContext.current, snap.tapPackage)
-            val chartWidth = 96.dp
-            val chart = sparkBitmap(snap.spark, snap.up, (chartWidth.value * density).toInt(), (22f * density).toInt(), 2f)
+            val chartW = (size.width.value * density).toInt().coerceAtLeast(32)
+            val chartH = ((size.height.value - 52f) * density).toInt().coerceAtLeast(24)
+            val chart = sparkBitmap(snap.spark, snap.up, chartW, chartH, 2f)
             Chrome(snap, showTitle = false, tapBody = false, showRefresh = false, contentPadding = 8.dp) {
                 Column(modifier = GlanceModifier.fillMaxSize()) {
-                    val textMod = if (open != null) GlanceModifier.fillMaxWidth().clickable(open) else GlanceModifier.fillMaxWidth()
-                    Text(
-                        snap.primary,
-                        modifier = textMod,
-                        style = TextStyle(color = ColorProvider(Paper), fontSize = 14.4.sp, fontWeight = FontWeight.Bold),
-                    )
-                    Text(
-                        snap.secondary + " 24h",
-                        modifier = if (open != null) GlanceModifier.clickable(open) else GlanceModifier,
-                        style = TextStyle(color = ColorProvider(if (snap.up) UpColor else DownColor), fontSize = 10.4.sp),
-                    )
+                    Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            snap.primary,
+                            modifier = if (open != null) GlanceModifier.clickable(open) else GlanceModifier,
+                            style = TextStyle(color = ColorProvider(Paper), fontSize = 14.4.sp, fontWeight = FontWeight.Bold),
+                            maxLines = 1,
+                        )
+                        Text(
+                            "  " + snap.secondary,
+                            modifier = if (open != null) GlanceModifier.clickable(open) else GlanceModifier,
+                            style = TextStyle(color = ColorProvider(if (snap.up) UpColor else DownColor), fontSize = 12.sp, fontWeight = FontWeight.Medium),
+                            maxLines = 1,
+                        )
+                    }
                     if (snap.spark.size > 1) {
-                        val chartMod = GlanceModifier.width(chartWidth).height(16.dp).padding(top = 2.dp)
+                        val chartMod = GlanceModifier.fillMaxWidth().defaultWeight().padding(top = 4.dp)
                         Image(
                             provider = ImageProvider(chart),
                             contentDescription = "Market trend",
                             modifier = if (open != null) chartMod.clickable(open) else chartMod,
                             contentScale = ContentScale.FillBounds,
                         )
+                    } else {
+                        Spacer(modifier = GlanceModifier.defaultWeight())
                     }
-                    Row(
-                        modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
-                        horizontalAlignment = Alignment.End,
-                        verticalAlignment = Alignment.Bottom,
-                    ) {
-                        if (snap.refreshNote.isNotBlank()) {
-                            Text(snap.refreshNote, style = TextStyle(color = ColorProvider(Color(0xFFEFE8DC).copy(alpha = 0.65f)), fontSize = 8.sp))
-                        }
+                    Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(snap.refreshNote, style = TextStyle(color = ColorProvider(Color(0xFFEFE8DC).copy(alpha = 0.65f)), fontSize = 8.sp))
+                        Spacer(modifier = GlanceModifier.defaultWeight())
                         Image(
                             provider = ImageProvider(R.drawable.ic_refresh),
-                            contentDescription = if (snap.refreshNote.isBlank()) "Refresh" else snap.refreshNote,
+                            contentDescription = "Refresh",
                             modifier = GlanceModifier.size(14.dp).background(ColorProvider(Color.Transparent)).clickable(refreshClick()),
                             colorFilter = androidx.glance.ColorFilter.tint(ColorProvider(Color(0xFFE8E6E6).copy(alpha = 0.65f))),
                         )
@@ -688,7 +691,7 @@ private fun readRefreshNote(context: Context): String {
         "fail" -> "Failed"
         "ok" -> {
             val at = prefs.getLong("at", 0L)
-            if (at == 0L) "" else "Updated " + android.text.format.DateFormat.format("h:mm", at)
+            if (at == 0L) "" else android.text.format.DateFormat.format("h:mm", at).toString()
         }
         else -> ""
     }

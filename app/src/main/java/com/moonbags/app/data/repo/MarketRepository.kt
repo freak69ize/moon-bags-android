@@ -12,6 +12,7 @@ import com.moonbags.app.data.security.ExchangeCredentials
 import com.moonbags.app.data.security.SecureCredentialStore
 import com.moonbags.app.data.remote.MoonJson
 import com.moonbags.app.domain.AssetIds
+import com.moonbags.app.domain.CompactMoney
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -498,6 +499,114 @@ class MarketRepository(
         }
     }.getOrNull()
 
+    suspend fun coinStats(hit: SearchCoinDto): CoinStats = withContext(Dispatchers.IO) {
+        val prices = hit.spark.split(",").mapNotNull { it.toDoubleOrNull() }
+        val base = CoinStats(
+            price = hit.price,
+            marketCap = hit.marketCap,
+            network = hit.chain,
+            prices = prices,
+            caps = if (hit.price > 0 && hit.marketCap > 0) prices.map { hit.marketCap * (it / hit.price) } else emptyList(),
+        )
+        val numeric = hit.id.removePrefix("cmc-")
+        val loaded = when {
+            hit.id.startsWith("cmc-") && numeric.all { it.isDigit() } -> cmcStats(numeric, base)
+            hit.id.startsWith("dex") -> dexStats(hit, base)
+            else -> geckoStats(hit.id, base)
+        }
+        loaded ?: base
+    }
+
+    private fun cmcStats(id: String, base: CoinStats): CoinStats? = runCatching {
+        val data = JSONObject(cmc("https://api.coinmarketcap.com/data-api/v3/cryptocurrency/detail?id=$id")).optJSONObject("data") ?: return@runCatching null
+        val stats = data.optJSONObject("statistics")
+        val platforms = data.optJSONArray("platforms")
+        val platform = if (platforms != null && platforms.length() > 0) platforms.optJSONObject(0) else null
+        val chart = chartSeries(id)
+        val maxSupply = stats?.optDouble("maxSupply") ?: Double.NaN
+        val circulating = stats?.optDouble("circulatingSupply") ?: base.circulating
+        base.copy(
+            price = stats?.optDouble("price")?.takeIf { it > 0 } ?: base.price,
+            marketCap = stats?.optDouble("marketCap")?.takeIf { it > 0 } ?: base.marketCap,
+            volume = stats?.optDouble("volume24h")?.takeIf { it > 0 } ?: base.volume,
+            circulating = circulating.takeIf { it > 0 } ?: 0.0,
+            ath = listOf("highAllTime", "ath", "allTimeHigh").firstNotNullOfOrNull { key -> stats?.optDouble(key)?.takeIf { it > 0 } } ?: base.ath,
+            rank = data.optInt("rank", stats?.optInt("rank") ?: base.rank),
+            mintable = when {
+                maxSupply.isNaN() || maxSupply <= 0 -> "Yes"
+                circulating > 0 && circulating >= maxSupply * 0.995 -> "No"
+                else -> "Yes"
+            },
+            holders = stats?.optDouble("holders")?.takeIf { it > 0 }?.let { CompactMoney.format(it, "usd").removePrefix("$") } ?: "—",
+            holdTime = "—",
+            activity = volumeActivity(stats?.optDouble("volume24h") ?: 0.0, stats?.optDouble("volumeYesterday") ?: 0.0),
+            network = platform?.optString("contractPlatform").orEmpty().ifBlank { base.network },
+            contract = platform?.optString("contractAddress").orEmpty().ifBlank { base.contract },
+            prices = chart.first.ifEmpty { base.prices },
+            caps = chart.second.ifEmpty { base.caps },
+        )
+    }.getOrNull()
+
+    private fun geckoStats(id: String, base: CoinStats): CoinStats? = runCatching {
+        val body = cmc("https://api.coingecko.com/api/v3/coins/$id?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false&sparkline=true")
+        val root = JSONObject(body)
+        val market = root.optJSONObject("market_data") ?: return@runCatching null
+        val price = market.optJSONObject("current_price")?.optDouble("usd") ?: base.price
+        val cap = market.optJSONObject("market_cap")?.optDouble("usd") ?: base.marketCap
+        val spark = market.optJSONObject("sparkline_7d")?.optJSONArray("price")
+        val prices = spark?.let { array -> List(array.length()) { index -> array.optDouble(index) }.filter { it > 0 } } ?: base.prices
+        val maxSupply = market.optDouble("max_supply")
+        val circulating = market.optDouble("circulating_supply")
+        base.copy(
+            price = price.takeIf { it > 0 } ?: base.price,
+            marketCap = cap.takeIf { it > 0 } ?: base.marketCap,
+            volume = market.optJSONObject("total_volume")?.optDouble("usd")?.takeIf { it > 0 } ?: base.volume,
+            circulating = circulating.takeIf { it > 0 } ?: 0.0,
+            ath = market.optJSONObject("ath")?.optDouble("usd")?.takeIf { it > 0 } ?: base.ath,
+            rank = root.optInt("market_cap_rank", base.rank),
+            mintable = when {
+                maxSupply.isNaN() || maxSupply <= 0 -> "Yes"
+                circulating > 0 && circulating >= maxSupply * 0.995 -> "No"
+                else -> "Yes"
+            },
+            prices = prices,
+            caps = if (price > 0 && cap > 0) prices.map { cap * (it / price) } else base.caps,
+        )
+    }.getOrNull()
+
+    private fun dexStats(hit: SearchCoinDto, base: CoinStats): CoinStats? = runCatching {
+        val address = hit.id.substringAfterLast("-")
+        val body = cmc("https://api.dexscreener.com/latest/dex/tokens/$address")
+        val pair = MoonJson.json.parseToJsonElement(body).jsonObject["pairs"]?.jsonArray?.firstOrNull()?.jsonObject ?: return@runCatching null
+        base.copy(
+            price = pair["priceUsd"]?.jsonPrimitive?.contentOrNull?.toDoubleOrNull() ?: base.price,
+            marketCap = pair["marketCap"]?.jsonPrimitive?.contentOrNull?.toDoubleOrNull() ?: base.marketCap,
+            volume = pair["volume"]?.jsonObject?.get("h24")?.jsonPrimitive?.contentOrNull?.toDoubleOrNull() ?: base.volume,
+            network = pair["chainId"]?.jsonPrimitive?.contentOrNull ?: hit.chain,
+            contract = pair["baseToken"]?.jsonObject?.get("address")?.jsonPrimitive?.contentOrNull ?: address,
+            mintable = "—",
+        )
+    }.getOrNull()
+
+    private fun chartSeries(id: String): Pair<List<Double>, List<Double>> = runCatching {
+        val body = cmc("https://api.coinmarketcap.com/data-api/v3/cryptocurrency/detail/chart?id=$id&range=1D")
+        val points = MoonJson.json.parseToJsonElement(body).jsonObject["data"]?.jsonObject?.get("points")?.jsonObject ?: return@runCatching emptyList<Double>() to emptyList()
+        val rows = points.entries.sortedBy { it.key.toLongOrNull() ?: 0L }.mapNotNull { entry ->
+            entry.value.jsonObject["v"]?.jsonArray?.map { it.jsonPrimitive.contentOrNull?.toDoubleOrNull() ?: 0.0 }
+        }
+        val prices = rows.mapNotNull { it.getOrNull(0)?.takeIf { price -> price > 0 } }
+        val caps = rows.mapNotNull { it.getOrNull(2)?.takeIf { cap -> cap > 0 } }
+        prices to caps
+    }.getOrDefault(emptyList<Double>() to emptyList())
+
+    private fun volumeActivity(today: Double, yesterday: Double): String {
+        if (today <= 0.0) return "—"
+        if (yesterday <= 0.0) return "Active"
+        val change = (today - yesterday) / yesterday * 100.0
+        val tone = if (change >= 0) "Up" else "Down"
+        return tone + " " + String.format(java.util.Locale.US, "%.1f%%", kotlin.math.abs(change))
+    }
+
     private fun cmc(url: String): String {
         val request = Request.Builder()
             .url(url)
@@ -516,3 +625,20 @@ class MarketRepository(
         }
     }
 }
+
+data class CoinStats(
+    val price: Double = 0.0,
+    val marketCap: Double = 0.0,
+    val volume: Double = 0.0,
+    val circulating: Double = 0.0,
+    val ath: Double = 0.0,
+    val rank: Int = 0,
+    val mintable: String = "—",
+    val holders: String = "—",
+    val holdTime: String = "—",
+    val activity: String = "—",
+    val network: String = "",
+    val contract: String = "",
+    val prices: List<Double> = emptyList(),
+    val caps: List<Double> = emptyList(),
+)
