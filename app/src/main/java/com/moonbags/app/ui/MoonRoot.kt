@@ -60,6 +60,7 @@ import androidx.compose.material.icons.outlined.Search
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -254,8 +255,13 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
     val watch = state.settings.watchIds.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
     Box(Modifier.fillMaxSize()) {
         val wide = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 720
+        PullToRefreshBox(
+            isRefreshing = state.refreshing,
+            onRefresh = { if (draggingId == null) vm.refresh() },
+            modifier = Modifier.fillMaxSize().statusBarsPadding(),
+        ) {
         Column(
-            Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState(), enabled = draggingId == null).padding(bottom = 176.dp),
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState(), enabled = draggingId == null).padding(bottom = 176.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Column(Modifier.widthIn(max = 840.dp).fillMaxWidth()) {
@@ -370,6 +376,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
                 }
             }
             }
+        }
         }
         BoxWithConstraints(Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight()) {
             val progress = lift.coerceIn(0f, 1f)
@@ -622,8 +629,9 @@ private fun WatchedRow(
                                 if (!change.pressed) return@withTimeoutOrNull "up"
                                 val delta = change.position - start
                                 if (delta.getDistance() > slop) {
-                                    change.consume()
-                                    return@withTimeoutOrNull if (kotlin.math.abs(delta.x) > kotlin.math.abs(delta.y)) "side" else "cancel"
+                                    val sideways = kotlin.math.abs(delta.x) > kotlin.math.abs(delta.y)
+                                    if (sideways) change.consume()
+                                    return@withTimeoutOrNull if (sideways) "side" else "cancel"
                                 }
                             }
                             @Suppress("UNREACHABLE_CODE")
