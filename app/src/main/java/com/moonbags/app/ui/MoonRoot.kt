@@ -764,6 +764,38 @@ private fun CoinDetailPage(hit: SearchCoinDto, currency: String, vm: MoonViewMod
     var candles by remember(hit.id) { mutableStateOf(false) }
     var capAxis by remember(hit.id) { mutableStateOf(false) }
     var scrub by remember(hit.id) { mutableFloatStateOf(-1f) }
+    var range by remember(hit.id) { mutableStateOf("24H") }
+    var detailRefreshing by remember(hit.id) { mutableStateOf(false) }
+    val refreshingDetail by rememberUpdatedState(detailRefreshing)
+    var detailPull by remember(hit.id) { mutableFloatStateOf(0f) }
+    val detailThreshold = with(LocalDensity.current) { 80.dp.toPx() }
+    val detailPullScroll = remember(hit.id) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (detailPull <= 0f || available.y >= 0f || refreshingDetail) return Offset.Zero
+                val eat = kotlin.math.min(detailPull, -available.y)
+                detailPull -= eat
+                return Offset(0f, -eat)
+            }
+
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (refreshingDetail || source != NestedScrollSource.UserInput || available.y <= 0f) return Offset.Zero
+                detailPull = (detailPull + available.y * 0.5f).coerceAtMost(detailThreshold * 1.5f)
+                return Offset(0f, available.y)
+            }
+
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (detailPull >= detailThreshold && !refreshingDetail) {
+                    detailRefreshing = true
+                    stats = null
+                    stats = runCatching { vm.coinStats(hit) }.getOrNull()
+                    detailRefreshing = false
+                }
+                detailPull = 0f
+                return Velocity.Zero
+            }
+        }
+    }
     LaunchedEffect(hit.id) {
         failed = null
         stats = runCatching { vm.coinStats(hit) }
@@ -774,8 +806,9 @@ private fun CoinDetailPage(hit: SearchCoinDto, currency: String, vm: MoonViewMod
     val price = stats?.price?.takeIf { it > 0 } ?: hit.price
     val cap = stats?.marketCap?.takeIf { it > 0 } ?: hit.marketCap
     val priceSeries = when {
+        hit.spark.split(",").mapNotNull { it.toDoubleOrNull() }.size >= 2 -> hit.spark.split(",").mapNotNull { it.toDoubleOrNull() }
         (stats?.prices?.size ?: 0) >= 2 -> stats?.prices.orEmpty()
-        else -> hit.spark.split(",").mapNotNull { it.toDoubleOrNull() }
+        else -> emptyList()
     }
     val chartSeries = when {
         capAxis && (stats?.caps?.size ?: 0) >= 2 -> stats?.caps.orEmpty()
@@ -789,7 +822,8 @@ private fun CoinDetailPage(hit: SearchCoinDto, currency: String, vm: MoonViewMod
         else -> failed ?: "No price history returned"
     }
     val scrubIndex = if (scrub < 0f || chartSeries.isEmpty()) -1 else (scrub * (chartSeries.size - 1)).toInt().coerceIn(0, chartSeries.lastIndex)
-    Column(Modifier.fillMaxSize().background(Color(0xFF0E0E10)).statusBarsPadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Box(Modifier.fillMaxSize().background(Color(0xFF0E0E10)).statusBarsPadding().nestedScroll(detailPullScroll)) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack) { Text("Back", color = Color.White) }
             Column(Modifier.weight(1f)) {
@@ -800,18 +834,14 @@ private fun CoinDetailPage(hit: SearchCoinDto, currency: String, vm: MoonViewMod
         }
         Text(CompactMoney.price(if (scrubIndex >= 0 && !capAxis) chartSeries[scrubIndex] else price, currency), color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Bold)
         Text((if (hit.change24h >= 0) "+" else "") + String.format("%.2f%%", hit.change24h), color = if (hit.change24h >= 0) Color(0xFF3DDC84) else Color(0xFFFF6B81))
-        Box(Modifier.fillMaxWidth().height(64.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF16161A)), contentAlignment = Alignment.Center) {
-            if (priceSeries.size >= 2) {
-                MiniSpark(priceSeries.joinToString(","), hit.change24h >= 0, Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 10.dp))
-            } else {
-                Text(chartNote ?: "Loading chart", color = Color(0xFF8E8E93), fontSize = 13.sp)
-            }
-        }
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(selected = !candles, onClick = { candles = false }, label = { Text("Line") })
-            FilterChip(selected = candles, onClick = { candles = true }, label = { Text("Candles") })
-            FilterChip(selected = !capAxis, onClick = { capAxis = false }, label = { Text("Price") })
-            FilterChip(selected = capAxis, onClick = { capAxis = true }, label = { Text("Market cap") })
+            listOf("15m", "1H", "24H", "1W", "All").forEach { label ->
+                FilterChip(
+                    selected = range == label,
+                    onClick = { range = label },
+                    label = { Text(label) },
+                )
+            }
         }
         Box(Modifier.fillMaxWidth().height(280.dp)) {
             DetailChart(chartSeries, if (capAxis) emptyList() else stats?.candles.orEmpty(), hit.change24h >= 0, candles, scrub) { scrub = it }
@@ -836,6 +866,14 @@ private fun CoinDetailPage(hit: SearchCoinDto, currency: String, vm: MoonViewMod
         StatRow("Holders", countTextOrDash(stats?.holders ?: ""))
         StatRow("Network", networkName(stats?.network?.ifBlank { hit.chain } ?: hit.chain))
         StatRow("Contract", textOrDash(stats?.contract ?: ""))
+    }
+        if (detailRefreshing || detailPull > 4f) {
+            CircularProgressIndicator(
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp).size(28.dp),
+                color = Color.White,
+                strokeWidth = 2.dp,
+            )
+        }
     }
 }
 
@@ -905,7 +943,7 @@ private fun networkName(raw: String): String {
 
 @Composable
 private fun DetailChart(values: List<Double>, bars: List<com.moonbags.app.data.repo.Ohlc>, up: Boolean, candles: Boolean, scrub: Float, onScrub: (Float) -> Unit) {
-    val color = if (up) Color(0xFF3DDC84) else Color(0xFFFF6B81)
+    val color = Color(0xFFFF6B81)
     Canvas(
         Modifier
             .fillMaxWidth()
@@ -939,6 +977,17 @@ private fun DetailChart(values: List<Double>, bars: List<com.moonbags.app.data.r
                 if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
             }
             drawPath(path, color, style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
+            val fillPath = androidx.compose.ui.graphics.Path().apply {
+                addPath(path)
+                lineTo(right, bottom)
+                lineTo(left, bottom)
+                close()
+            }
+            drawPath(fillPath, color.copy(alpha = 0.12f))
+            for (i in 0..12) {
+                val y = top + (bottom - top) * i / 12f
+                drawLine(Color.White.copy(alpha = 0.06f), Offset(left, y), Offset(right, y), strokeWidth = 1f)
+            }
         } else {
             val chunks = if (bars.size >= 2) bars else {
                 val group = (values.size / 28).coerceAtLeast(1)
