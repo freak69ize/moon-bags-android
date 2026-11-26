@@ -379,12 +379,25 @@ class MarketRepository(
             id.startsWith("dexbase-") -> "base"
             else -> return@runCatching ""
         }
-        val body = cmc("https://api.geckoterminal.com/api/v2/networks/$network/tokens/$address/ohlcv/hour?aggregate=1&limit=48")
-        val list = MoonJson.json.parseToJsonElement(body).jsonObject["data"]?.jsonObject?.get("attributes")?.jsonObject?.get("ohlcv_list")?.jsonArray ?: return@runCatching ""
-        val prices = list.mapNotNull { it.jsonArray.getOrNull(4)?.jsonPrimitive?.doubleOrNull }.reversed()
-        if (prices.size < 2) return@runCatching ""
-        prices.joinToString(",")
+        val direct = runCatching {
+            ohlcvCloses("https://api.geckoterminal.com/api/v2/networks/$network/tokens/$address/ohlcv/hour?aggregate=1&limit=48")
+        }.getOrDefault("")
+        if (direct.isNotBlank()) return@runCatching direct
+        val pools = getJson("https://api.geckoterminal.com/api/v2/networks/$network/tokens/$address/pools?page=1")
+        val pool = JSONObject(pools).optJSONArray("data")?.optJSONObject(0) ?: return@runCatching ""
+        val poolId = pool.optJSONObject("attributes")?.optString("address").orEmpty()
+            .ifBlank { pool.optString("id").substringAfter("_") }
+        if (poolId.isBlank()) return@runCatching ""
+        ohlcvCloses("https://api.geckoterminal.com/api/v2/networks/$network/pools/$poolId/ohlcv/hour?aggregate=1&limit=48&currency=usd")
     }.getOrDefault("")
+
+    private fun ohlcvCloses(url: String): String {
+        val body = getJson(url)
+        val list = MoonJson.json.parseToJsonElement(body).jsonObject["data"]?.jsonObject?.get("attributes")?.jsonObject?.get("ohlcv_list")?.jsonArray ?: return ""
+        val prices = list.mapNotNull { it.jsonArray.getOrNull(4)?.jsonPrimitive?.doubleOrNull }.reversed()
+        if (prices.size < 2) return ""
+        return prices.joinToString(",")
+    }
 
     suspend fun liveGlobal(): Triple<Double, Double, Double>? = withContext(Dispatchers.IO) { cmcGlobal() }
 
