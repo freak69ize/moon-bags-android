@@ -372,7 +372,7 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = 
     val cornerPx = cornerDp * density
     val widthPx = (size.width.value * density).toInt().coerceAtLeast(8)
     val heightPx = (size.height.value * density).toInt().coerceAtLeast(8)
-    val stroke = 3f * density
+    val stroke = context.resources.getDimension(R.dimen.widget_stroke_width)
     val frame = frameBitmap(
         widthPx,
         heightPx,
@@ -479,7 +479,7 @@ class TotalMarketCapWidget : GlanceAppWidget() {
                         )
                     }
                     if (snap.spark.size > 1) {
-                        val chartMod = GlanceModifier.fillMaxWidth().defaultWeight().padding(top = 4.dp)
+                        val chartMod = GlanceModifier.fillMaxWidth().defaultWeight().padding(top = 4.dp).background(ImageProvider(R.drawable.widget_press_clear))
                         Image(
                             provider = ImageProvider(chart),
                             contentDescription = "Market trend",

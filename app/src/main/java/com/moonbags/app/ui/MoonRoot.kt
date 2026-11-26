@@ -11,6 +11,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -248,6 +249,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
     var detail by remember { mutableStateOf<SearchCoinDto?>(null) }
     var lift by remember { mutableFloatStateOf(0f) }
     var draggingId by remember { mutableStateOf<String?>(null) }
+    var dragStart by remember { mutableIntStateOf(-1) }
     var dragDy by remember { mutableFloatStateOf(0f) }
     var order by remember { mutableStateOf(listOf<String>()) }
     val scope = rememberCoroutineScope()
@@ -302,28 +304,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
             val line = parseHex(state.settings.menuLine)
             val group = parseHex(state.settings.cardColor).copy(alpha = state.settings.menuAlpha.coerceIn(0.2f, 1f))
             val rowPx = with(LocalDensity.current) { 76.dp.toPx() }
-            fun moveCoin(id: String, deltaY: Float) {
-                val list = order.toMutableList()
-                var index = list.indexOf(id)
-                var delta = dragDy + deltaY
-                if (index < 0) return
-                while (delta > rowPx * 0.5f && index < list.lastIndex) {
-                    val next = list[index + 1]
-                    list[index + 1] = list[index]
-                    list[index] = next
-                    index += 1
-                    delta -= rowPx
-                }
-                while (delta < -rowPx * 0.5f && index > 0) {
-                    val prev = list[index - 1]
-                    list[index - 1] = list[index]
-                    list[index] = prev
-                    index -= 1
-                    delta += rowPx
-                }
-                order = list
-                dragDy = delta
-            }
+            val dropIndex = if (dragStart < 0) -1 else (dragStart + kotlin.math.round(dragDy / rowPx).toInt()).coerceIn(0, (shown.size - 1).coerceAtLeast(0))
             Column(
                 Modifier
                     .padding(horizontal = if (wide) 16.dp else 12.dp)
@@ -337,22 +318,54 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
                 }
                 shown.forEachIndexed { index, quote ->
                     val dragging = draggingId == quote.coinId
+                    val shift = when {
+                        dragging || dragStart < 0 || dropIndex < 0 -> 0f
+                        dragStart < dropIndex && index in (dragStart + 1)..dropIndex -> -rowPx
+                        dragStart > dropIndex && index in dropIndex until dragStart -> rowPx
+                        else -> 0f
+                    }
+                    val animatedShift by animateFloatAsState(shift, tween(180), label = "shift")
                     WatchedRow(
                         quote,
                         currency,
                         sub,
                         group,
                         dragging = dragging,
-                        lift = if (dragging) dragDy else 0f,
+                        lift = if (dragging) dragDy else animatedShift,
+                        onOpen = {
+                            detail = SearchCoinDto(
+                                id = quote.coinId,
+                                symbol = quote.symbol,
+                                name = quote.name,
+                                price = quote.price,
+                                marketCap = quote.marketCap,
+                                image = quote.imageUrl.orEmpty(),
+                                change24h = quote.change24h,
+                                spark = quote.sparkline,
+                            )
+                        },
                         onRemove = {
                             vm.patch { it.copy(watchIds = watch.filterNot { id -> id == quote.coinId }.joinToString(",")) }
                         },
-                        onGrab = { draggingId = quote.coinId; dragDy = 0f },
-                        onSlide = { moveCoin(quote.coinId, it) },
-                        onDrop = {
-                            draggingId = null
+                        onGrab = {
+                            draggingId = quote.coinId
+                            dragStart = index
                             dragDy = 0f
-                            vm.patch { it.copy(watchIds = order.joinToString(",")) }
+                        },
+                        onSlide = { dragDy += it },
+                        onDrop = {
+                            val from = dragStart
+                            val to = if (from < 0) from else (from + kotlin.math.round(dragDy / rowPx).toInt()).coerceIn(0, shown.lastIndex)
+                            if (from >= 0 && to >= 0 && from != to) {
+                                val list = order.toMutableList()
+                                val moved = list.removeAt(from)
+                                list.add(to, moved)
+                                order = list
+                                vm.patch { it.copy(watchIds = list.joinToString(",")) }
+                            }
+                            draggingId = null
+                            dragStart = -1
+                            dragDy = 0f
                         },
                     )
                     if (index != shown.lastIndex) {
@@ -552,6 +565,7 @@ private fun WatchedRow(
     card: Color,
     dragging: Boolean,
     lift: Float,
+    onOpen: () -> Unit,
     onRemove: () -> Unit,
     onGrab: () -> Unit,
     onSlide: (Float) -> Unit,
@@ -607,6 +621,10 @@ private fun WatchedRow(
                         change.consume()
                         onSlide(amount.y)
                     }
+                }
+                .pointerInput(quote.coinId, dragging) {
+                    if (dragging) return@pointerInput
+                    detectTapGestures(onTap = { onOpen() })
                 }
                 .pointerInput(quote.coinId, dragging) {
                     if (dragging) return@pointerInput
@@ -697,6 +715,7 @@ private fun CoinDetailPage(hit: SearchCoinDto, currency: String, vm: MoonViewMod
         }
         Text(if (capAxis) CompactMoney.format(if (scrubIndex >= 0) series[scrubIndex] else cap, currency) else CompactMoney.price(if (scrubIndex >= 0) series[scrubIndex] else price, currency), color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Bold)
         Text((if (hit.change24h >= 0) "+" else "") + String.format("%.2f%%", hit.change24h), color = if (hit.change24h >= 0) Color(0xFF3DDC84) else Color(0xFFFF6B81))
+        MiniSpark(if (series.size >= 2) series.joinToString(",") else "1,1", hit.change24h >= 0, Modifier.fillMaxWidth().height(48.dp))
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(selected = !candles, onClick = { candles = false }, label = { Text("Line") })
             FilterChip(selected = candles, onClick = { candles = true }, label = { Text("Candles") })

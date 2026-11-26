@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:insetLeft="@dimen/widget_stroke_inset"
+    android:insetTop="@dimen/widget_stroke_inset"
+    android:insetRight="@dimen/widget_stroke_inset"
+    android:insetBottom="@dimen/widget_stroke_inset">
+    <shape android:shape="rectangle">
+        <solid android:color="@android:color/transparent" />
+        <stroke
+            android:width="@dimen/widget_stroke_width"
+            android:color="#FFFFFFFF" />
+        <corners android:radius="22dp" />
+    </shape>
+</inset>
