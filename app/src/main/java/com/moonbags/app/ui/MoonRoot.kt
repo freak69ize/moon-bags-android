@@ -724,9 +724,17 @@ private fun WatchedRow(
                 }
             }
             Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Text(quote.name, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(quote.symbol.uppercase(), color = sub, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(0.dp)) {
+                Text(quote.name, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(quote.symbol.uppercase(), color = sub, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.offset(y = (-2).dp))
+                Text(
+                    CompactMoney.cap(quote.marketCap, currency),
+                    color = if (up) Color(0xFF3DDC84) else Color(0xFFFF6B81),
+                    fontSize = 5.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.offset(y = (-3).dp),
+                )
             }
             MiniSpark(quote.sparkline, up, Modifier.width(44.dp).height(32.dp))
             Spacer(Modifier.width(6.dp))
