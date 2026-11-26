@@ -124,7 +124,8 @@ object WidgetSnapshots {
     suspend fun loadId(context: Context, id: Int, kind: String): WidgetSnap {
         val graph = (context.applicationContext as MoonBagsApp).graph
         val settings = graph.settings.flow.first()
-        val config = graph.db.widgets().get(id) ?: WidgetConfigEntity(
+        val existing = graph.db.widgets().get(id)
+        val config = existing ?: WidgetConfigEntity(
             appWidgetId = id,
             kind = kind,
             coinId = "bitcoin",
@@ -134,6 +135,9 @@ object WidgetSnapshots {
             hidden = false,
             alpha = 0.7f,
         )
+        if (existing == null) {
+            runCatching { graph.db.widgets().upsert(config) }
+        }
         val live = runCatching { graph.market.liveGlobal() }.getOrNull()
         val storedGlobal = graph.db.market().global(settings.currency)
         val global = if (live != null) {

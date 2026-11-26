@@ -173,14 +173,14 @@ private fun ConfigureForm(appWidgetId: Int, kind: String, onDone: (Boolean) -> U
         }
         Button(
             onClick = {
+                val chosen = selectedId
                 scope.launch {
                     graph.settings.update { it.copy(radiusDp = radius.toInt().coerceIn(0, 36)) }
-                    val coinToSave = selectedId.ifBlank { quotes.firstOrNull()?.coinId ?: "bitcoin" }
                     graph.db.widgets().upsert(
                         WidgetConfigEntity(
                             appWidgetId = appWidgetId,
                             kind = kind,
-                            coinId = coinToSave,
+                            coinId = chosen,
                             showPrice = showPrice,
                             backgroundPath = path,
                             scrim = scrim,
@@ -188,6 +188,7 @@ private fun ConfigureForm(appWidgetId: Int, kind: String, onDone: (Boolean) -> U
                             alpha = alpha,
                         ),
                     )
+                    kotlinx.coroutines.delay(150)
                     updateWidget(context, kind, appWidgetId)
                     onDone(true)
                 }

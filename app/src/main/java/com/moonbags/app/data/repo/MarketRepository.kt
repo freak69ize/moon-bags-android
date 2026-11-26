@@ -374,7 +374,6 @@ class MarketRepository(
 
     private fun dexSpark(id: String): String = runCatching {
         val address = dexAddress(id)
-        // GeckoTerminal gives a usable price series for most Solana/Base tokens
         val network = when {
             id.startsWith("dexsol-") -> "solana"
             id.startsWith("dexbase-") -> "base"
@@ -382,7 +381,7 @@ class MarketRepository(
         }
         val body = cmc("https://api.geckoterminal.com/api/v2/networks/$network/tokens/$address/ohlcv/hour?aggregate=1&limit=48")
         val list = MoonJson.json.parseToJsonElement(body).jsonObject["data"]?.jsonObject?.get("attributes")?.jsonObject?.get("ohlcv_list")?.jsonArray ?: return@runCatching ""
-        val prices = list.mapNotNull { it.jsonArray.getOrNull(4)?.jsonPrimitive?.doubleOrNull }.reversed() // close prices, oldest first
+        val prices = list.mapNotNull { it.jsonArray.getOrNull(4)?.jsonPrimitive?.doubleOrNull }.reversed()
         if (prices.size < 2) return@runCatching ""
         prices.joinToString(",")
     }.getOrDefault("")
