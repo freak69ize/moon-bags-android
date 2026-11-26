@@ -33,6 +33,7 @@ data class UserSettings(
     val subtextColor: String = "#8E8E93",
     val widgetAlpha: Float = 0f,
     val widgetBorder: String = "#D0BCFF",
+    val widgetStrokeDp: Float = 2f,
     val widgetFill: String = "#00000000",
     val cardColor: String = "#3A3842",
     val searchPillColor: String = "#242426",
@@ -67,6 +68,7 @@ class SettingsStore(private val context: Context) {
             subtextColor = prefs[Keys.subtextColor] ?: "#8E8E93",
             widgetAlpha = prefs[Keys.widgetAlpha] ?: 0f,
             widgetBorder = prefs[Keys.widgetBorder] ?: "#D0BCFF",
+            widgetStrokeDp = prefs[Keys.widgetStroke] ?: 2f,
             widgetFill = prefs[Keys.widgetFill] ?: "#00000000",
             cardColor = prefs[Keys.cardColor] ?: "#3A3842",
             searchPillColor = prefs[Keys.searchPillColor] ?: "#242426",
@@ -103,6 +105,7 @@ class SettingsStore(private val context: Context) {
                     subtextColor = prefs[Keys.subtextColor] ?: "#8E8E93",
                     widgetAlpha = prefs[Keys.widgetAlpha] ?: 0f,
                     widgetBorder = prefs[Keys.widgetBorder] ?: "#D0BCFF",
+                    widgetStrokeDp = prefs[Keys.widgetStroke] ?: 2f,
                     widgetFill = prefs[Keys.widgetFill] ?: "#00000000",
                     cardColor = prefs[Keys.cardColor] ?: "#3A3842",
                     searchPillColor = prefs[Keys.searchPillColor] ?: "#242426",
@@ -134,6 +137,7 @@ class SettingsStore(private val context: Context) {
             prefs[Keys.subtextColor] = next.subtextColor
             prefs[Keys.widgetAlpha] = next.widgetAlpha
             prefs[Keys.widgetBorder] = next.widgetBorder
+            prefs[Keys.widgetStroke] = next.widgetStrokeDp
             prefs[Keys.widgetFill] = next.widgetFill
             prefs[Keys.cardColor] = next.cardColor
             prefs[Keys.searchPillColor] = next.searchPillColor
@@ -167,6 +171,7 @@ class SettingsStore(private val context: Context) {
         val subtextColor = stringPreferencesKey("subtext_color")
         val widgetAlpha = floatPreferencesKey("widget_alpha")
         val widgetBorder = stringPreferencesKey("widget_border")
+        val widgetStroke = floatPreferencesKey("widget_stroke")
         val widgetFill = stringPreferencesKey("widget_fill")
         val cardColor = stringPreferencesKey("card_color")
         val searchPillColor = stringPreferencesKey("search_pill_color")

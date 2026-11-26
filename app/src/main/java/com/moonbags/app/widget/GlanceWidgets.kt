@@ -106,6 +106,7 @@ data class WidgetSnap(
     val fill: Color = Color.Transparent,
     val refreshNote: String = "",
     val cornerDp: Int = 22,
+    val strokeDp: Float = 2f,
 )
 
 private val Paper = Color(0xFFEFE8DC)
@@ -166,6 +167,7 @@ object WidgetSnapshots {
                 fill = runCatching { Color(android.graphics.Color.parseColor(settings.widgetFill)) }.getOrDefault(Color.Transparent),
                 refreshNote = readRefreshNote(context),
                 cornerDp = settings.radiusDp.coerceIn(0, 48),
+                strokeDp = settings.widgetStrokeDp.coerceIn(0.5f, 8f),
             )
     }
 }
@@ -372,7 +374,7 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = 
     val cornerPx = cornerDp * density
     val widthPx = (size.width.value * density).toInt().coerceAtLeast(8)
     val heightPx = (size.height.value * density).toInt().coerceAtLeast(8)
-    val stroke = context.resources.getDimension(R.dimen.widget_stroke_width)
+    val stroke = snap.strokeDp.coerceIn(0.5f, 8f) * density
     val frame = frameBitmap(
         widthPx,
         heightPx,

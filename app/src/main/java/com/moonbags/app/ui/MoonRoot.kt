@@ -850,10 +850,10 @@ private fun ToneControl(label: String, hex: String, onChange: (String) -> Unit) 
 }
 
 @Composable
-private fun ThinSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, color: Color, sub: Color, onChange: (Float) -> Unit) {
+private fun ThinSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, color: Color, sub: Color, decimals: Int = 0, onChange: (Float) -> Unit) {
     Column {
         Text(label, color = Color.White, fontSize = 14.sp)
-        Text(value.toInt().toString(), color = sub, fontSize = 12.sp)
+        Text(if (decimals == 0) value.toInt().toString() else String.format("%.1f", value), color = sub, fontSize = 12.sp)
         Box(
             Modifier.fillMaxWidth().height(28.dp).pointerInput(range) {
                 fun apply(x: Float) {
@@ -945,6 +945,9 @@ private fun StudioPage(state: DeskState, vm: MoonViewModel) {
     }
     ThinSlider("Corner roundness", settings.radiusDp.toFloat(), 0f..36f, slider, sub) { value ->
         vm.patch { it.copy(radiusDp = value.toInt().coerceIn(0, 36)) }
+    }
+    ThinSlider("Border width", settings.widgetStrokeDp, 0.5f..8f, slider, sub, decimals = 1) { value ->
+        vm.patch { it.copy(widgetStrokeDp = value.coerceIn(0.5f, 8f)) }
     }
     Button(onClick = { tap { pickingApp = true } }, modifier = Modifier.fillMaxWidth()) {
         Text(if (settings.tapLabel.isBlank()) "Widget tap opens nothing" else "Widget tap opens ${settings.tapLabel}")
@@ -1044,7 +1047,7 @@ private fun WidgetPreview(settings: UserSettings, config: WidgetConfigEntity?, s
                 Box(Modifier.matchParentSize().background(fill.copy(alpha = alpha)))
             }
         }
-        Box(Modifier.matchParentSize().border(1.dp, border, shape))
+        Box(Modifier.matchParentSize().border(settings.widgetStrokeDp.coerceIn(0.5f, 8f).dp, border, shape))
         Column(Modifier.padding(16.dp)) {
             Text(snap.title, color = Brass)
             Text(snap.primary, style = MaterialTheme.typography.headlineMedium, color = Color.White)
