@@ -257,7 +257,6 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val view = androidx.compose.ui.platform.LocalView.current
-    val watch = state.settings.watchIds.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
     val refreshingNow by rememberUpdatedState(state.refreshing)
     val draggingNow by rememberUpdatedState(draggingId)
     var pull by remember { mutableFloatStateOf(0f) }
@@ -324,10 +323,19 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
                 }
             }
             state.error?.let { Text(it, color = Down, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) }
+            val watchList = state.settings.watchIds.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            val watch = watchList.toSet()
             val rows = state.quotes.filter { it.coinId in watch }
-            LaunchedEffect(rows.joinToString { it.coinId }) {
-                val ids = rows.map { it.coinId }
-                order = if (order.isEmpty()) ids else ids.sortedBy { id -> order.indexOf(id).let { if (it < 0) Int.MAX_VALUE else it } }
+
+            LaunchedEffect(rows.joinToString { it.coinId }, state.settings.watchIds) {
+                val available = rows.map { it.coinId }.toSet()
+                order = if (order.isEmpty()) {
+                    // Prefer the saved order; append any new coins that aren't in it yet
+                    watchList.filter { it in available } + rows.map { it.coinId }.filter { it !in watchList }
+                } else {
+                    val ids = rows.map { it.coinId }
+                    ids.sortedBy { id -> order.indexOf(id).let { if (it < 0) Int.MAX_VALUE else it } }
+                }
             }
             val shown = order.mapNotNull { id -> rows.find { it.coinId == id } }
             val line = parseHex(state.settings.menuLine)
