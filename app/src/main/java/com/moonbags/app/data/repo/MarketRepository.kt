@@ -345,7 +345,7 @@ class MarketRepository(
 
     private fun dexPercent(raw: Double): Double = if (kotlin.math.abs(raw) <= 1.0) raw * 100 else raw
 
-    private fun memeSpark(id: String): String {
+    fun memeSpark(id: String): String {
         if (id.startsWith("cmc-")) {
             val numeric = id.removePrefix("cmc-")
             if (numeric.all { it.isDigit() }) {
@@ -356,7 +356,8 @@ class MarketRepository(
             }
         }
         if (id.startsWith("dex")) {
-            return dexSpark(id)
+            val fromDex = dexSpark(id)
+            if (fromDex.isNotBlank()) return fromDex
         }
         return ""
     }
@@ -383,12 +384,27 @@ class MarketRepository(
             ohlcvCloses("https://api.geckoterminal.com/api/v2/networks/$network/tokens/$address/ohlcv/hour?aggregate=1&limit=48")
         }.getOrDefault("")
         if (direct.isNotBlank()) return@runCatching direct
-        val pools = getJson("https://api.geckoterminal.com/api/v2/networks/$network/tokens/$address/pools?page=1")
-        val pool = JSONObject(pools).optJSONArray("data")?.optJSONObject(0) ?: return@runCatching ""
-        val poolId = pool.optJSONObject("attributes")?.optString("address").orEmpty()
-            .ifBlank { pool.optString("id").substringAfter("_") }
-        if (poolId.isBlank()) return@runCatching ""
-        ohlcvCloses("https://api.geckoterminal.com/api/v2/networks/$network/pools/$poolId/ohlcv/hour?aggregate=1&limit=48&currency=usd")
+        val fromPool = runCatching {
+            val pools = getJson("https://api.geckoterminal.com/api/v2/networks/$network/tokens/$address/pools?page=1")
+            val pool = JSONObject(pools).optJSONArray("data")?.optJSONObject(0) ?: return@runCatching ""
+            val poolId = pool.optJSONObject("attributes")?.optString("address").orEmpty()
+                .ifBlank { pool.optString("id").substringAfter("_") }
+            if (poolId.isBlank()) return@runCatching ""
+            ohlcvCloses("https://api.geckoterminal.com/api/v2/networks/$network/pools/$poolId/ohlcv/hour?aggregate=1&limit=48&currency=usd")
+        }.getOrDefault("")
+        if (fromPool.isNotBlank()) return@runCatching fromPool
+        geckoContractSpark(network, address)
+    }.getOrDefault("")
+
+    private fun geckoContractSpark(network: String, address: String): String = runCatching {
+        val platform = if (network == "solana") "solana" else "base"
+        val body = getJson("https://api.coingecko.com/api/v3/coins/$platform/contract/$address/market_chart?vs_currency=usd&days=1")
+        val prices = JSONObject(body).optJSONArray("prices") ?: return@runCatching ""
+        val values = List(prices.length()) { index -> prices.optJSONArray(index)?.optDouble(1) ?: Double.NaN }
+            .filter { it > 0 && !it.isNaN() }
+        if (values.size < 2) return@runCatching ""
+        val step = (values.size / 36).coerceAtLeast(1)
+        values.filterIndexed { index, _ -> index % step == 0 }.joinToString(",")
     }.getOrDefault("")
 
     private fun ohlcvCloses(url: String): String {

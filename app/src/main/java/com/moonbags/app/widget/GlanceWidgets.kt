@@ -155,6 +155,11 @@ object WidgetSnapshots {
                 change24h = spot.second,
                 marketCap = if (spot.third > 0.0) spot.third else quote.marketCap,
             )
+        }.map { quote ->
+            if ((quote.coinId.startsWith("cmc-") || quote.coinId.startsWith("dex")) && quote.sparkline.isBlank()) {
+                val spark = runCatching { graph.market.memeSpark(quote.coinId) }.getOrDefault("")
+                if (spark.isNotBlank()) quote.copy(sparkline = spark) else quote
+            } else quote
         }
         val holdings = graph.db.holdings().all()
         val raw = graph.media.decodeForWidget(config.backgroundPath, 640)
