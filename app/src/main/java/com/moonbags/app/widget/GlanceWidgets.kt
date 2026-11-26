@@ -181,7 +181,7 @@ fun render(
     holdings: List<HoldingEntity>,
     background: Bitmap?,
 ): WidgetSnap {
-    val coin = quotes.find { it.coinId == config.coinId } ?: quotes.firstOrNull()
+    val coin = quotes.find { it.coinId == config.coinId }
     val hidden = config.kind == WidgetKinds.BOOK && (config.hidden || hideAll)
     fun money(value: Double) = if (hidden) "••••" else CompactMoney.format(value, currency)
     return when (config.kind) {

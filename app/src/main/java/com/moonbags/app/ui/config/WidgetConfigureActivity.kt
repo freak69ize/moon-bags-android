@@ -23,6 +23,7 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -80,7 +81,12 @@ private fun ConfigureForm(appWidgetId: Int, kind: String, onDone: (Boolean) -> U
     val graph = (context.applicationContext as MoonBagsApp).graph
     val scope = rememberCoroutineScope()
     val quotes by produceState(emptyList<QuoteEntity>()) { value = graph.db.market().quotes() }
-    var coinId by remember { mutableStateOf(quotes.firstOrNull()?.coinId ?: "bitcoin") }
+    var coinId by remember { mutableStateOf("") }
+    LaunchedEffect(quotes) {
+        if (coinId.isBlank() && quotes.isNotEmpty()) {
+            coinId = quotes.first().coinId
+        }
+    }
     var showPrice by remember { mutableStateOf(kind == WidgetKinds.PILL || kind == WidgetKinds.SPARK || kind == WidgetKinds.SPARK_BAR) }
     var scrim by remember { mutableFloatStateOf(0.55f) }
     var alpha by remember { mutableFloatStateOf(0.7f) }
@@ -109,8 +115,18 @@ private fun ConfigureForm(appWidgetId: Int, kind: String, onDone: (Boolean) -> U
         )
         if (kind != WidgetKinds.MCAP && kind != WidgetKinds.BOOK && kind != WidgetKinds.WATCH) {
             quotes.forEach { quote ->
-                OutlinedButton(onClick = { coinId = quote.coinId }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) {
-                    Text(quote.symbol + " · " + quote.name, color = Color.White)
+                val selected = quote.coinId == coinId
+                OutlinedButton(
+                    onClick = { coinId = quote.coinId },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = if (selected) Color(0xFF3DDC84) else Color.White,
+                    ),
+                ) {
+                    Text(
+                        (if (selected) "✓ " else "") + quote.symbol + " · " + quote.name,
+                        color = if (selected) Color(0xFF3DDC84) else Color.White,
+                    )
                 }
             }
         }
