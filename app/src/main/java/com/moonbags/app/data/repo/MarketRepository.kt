@@ -524,20 +524,20 @@ class MarketRepository(
         val platform = if (platforms != null && platforms.length() > 0) platforms.optJSONObject(0) else null
         val chart = chartSeries(id)
         val maxSupply = stats?.optDouble("maxSupply") ?: Double.NaN
-        val circulating = stats?.optDouble("circulatingSupply") ?: base.circulating
+        val circulating = stats?.optDouble("circulatingSupply")?.takeIf { it > 0 && !it.isNaN() } ?: 0.0
+        val ath = readPositive(stats, "highAllTime", "ath", "allTimeHigh")
+            ?: readPositive(data, "highAllTime", "ath", "allTimeHigh")
+            ?: 0.0
+        val holders = readPositive(stats, "holders", "holderCount", "holdersCount")
         base.copy(
             price = stats?.optDouble("price")?.takeIf { it > 0 } ?: base.price,
             marketCap = stats?.optDouble("marketCap")?.takeIf { it > 0 } ?: base.marketCap,
             volume = stats?.optDouble("volume24h")?.takeIf { it > 0 } ?: base.volume,
-            circulating = circulating.takeIf { it > 0 } ?: 0.0,
-            ath = listOf("highAllTime", "ath", "allTimeHigh").firstNotNullOfOrNull { key -> stats?.optDouble(key)?.takeIf { it > 0 } } ?: base.ath,
-            rank = data.optInt("rank", stats?.optInt("rank") ?: base.rank),
-            mintable = when {
-                maxSupply.isNaN() || maxSupply <= 0 -> "Yes"
-                circulating > 0 && circulating >= maxSupply * 0.995 -> "No"
-                else -> "Yes"
-            },
-            holders = stats?.optDouble("holders")?.takeIf { it > 0 }?.let { CompactMoney.format(it, "usd").removePrefix("$") } ?: "—",
+            circulating = circulating,
+            ath = ath,
+            rank = data.optInt("rank", stats?.optInt("rank") ?: 0).takeIf { it > 0 } ?: base.rank,
+            mintable = mintableLabel(maxSupply, circulating),
+            holders = holders?.toLong()?.toString() ?: "—",
             holdTime = "—",
             activity = volumeActivity(stats?.optDouble("volume24h") ?: 0.0, stats?.optDouble("volumeYesterday") ?: 0.0),
             network = platform?.optString("contractPlatform").orEmpty().ifBlank { base.network },
@@ -557,18 +557,19 @@ class MarketRepository(
         val prices = spark?.let { array -> List(array.length()) { index -> array.optDouble(index) }.filter { it > 0 } } ?: base.prices
         val maxSupply = market.optDouble("max_supply")
         val circulating = market.optDouble("circulating_supply")
+        val platforms = root.optJSONObject("platforms")
+        val platformId = root.optString("asset_platform_id")
+        val contract = platforms?.optString(platformId).orEmpty()
         base.copy(
             price = price.takeIf { it > 0 } ?: base.price,
             marketCap = cap.takeIf { it > 0 } ?: base.marketCap,
             volume = market.optJSONObject("total_volume")?.optDouble("usd")?.takeIf { it > 0 } ?: base.volume,
-            circulating = circulating.takeIf { it > 0 } ?: 0.0,
+            circulating = circulating.takeIf { it > 0 && !it.isNaN() } ?: 0.0,
             ath = market.optJSONObject("ath")?.optDouble("usd")?.takeIf { it > 0 } ?: base.ath,
-            rank = root.optInt("market_cap_rank", base.rank),
-            mintable = when {
-                maxSupply.isNaN() || maxSupply <= 0 -> "Yes"
-                circulating > 0 && circulating >= maxSupply * 0.995 -> "No"
-                else -> "Yes"
-            },
+            rank = root.optInt("market_cap_rank", base.rank).takeIf { it > 0 } ?: 0,
+            mintable = mintableLabel(maxSupply, circulating),
+            network = platformId.ifBlank { base.network },
+            contract = contract.ifBlank { base.contract },
             prices = prices,
             caps = if (price > 0 && cap > 0) prices.map { cap * (it / price) } else base.caps,
         )
@@ -598,6 +599,26 @@ class MarketRepository(
         val caps = rows.mapNotNull { it.getOrNull(2)?.takeIf { cap -> cap > 0 } }
         prices to caps
     }.getOrDefault(emptyList<Double>() to emptyList())
+
+    private fun mintableLabel(maxSupply: Double, circulating: Double): String = when {
+        maxSupply.isNaN() -> "—"
+        maxSupply <= 0.0 -> "Yes"
+        circulating > 0.0 && circulating >= maxSupply * 0.995 -> "No"
+        circulating > 0.0 -> "Yes"
+        else -> "—"
+    }
+
+    private fun readPositive(source: JSONObject?, vararg keys: String): Double? {
+        if (source == null) return null
+        keys.forEach { key ->
+            val direct = source.optDouble(key)
+            if (!direct.isNaN() && direct > 0.0) return direct
+            val nested = source.optJSONObject(key)
+            val inner = nested?.optDouble("usd") ?: nested?.optDouble("price") ?: Double.NaN
+            if (!inner.isNaN() && inner > 0.0) return inner
+        }
+        return null
+    }
 
     private fun volumeActivity(today: Double, yesterday: Double): String {
         if (today <= 0.0) return "—"

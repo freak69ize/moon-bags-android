@@ -762,25 +762,81 @@ private fun CoinDetailPage(hit: SearchCoinDto, currency: String, vm: MoonViewMod
                 )
             }
         }
-        StatRow("Market cap", CompactMoney.format(cap, currency))
-        StatRow("24h volume", if ((stats?.volume ?: 0.0) > 0) CompactMoney.format(stats?.volume ?: 0.0, currency) else "—")
-        StatRow("Circulating supply", if ((stats?.circulating ?: 0.0) > 0) CompactMoney.format(stats?.circulating ?: 0.0, "usd").removePrefix("$") else "—")
-        StatRow("All-time high", if ((stats?.ath ?: 0.0) > 0) CompactMoney.price(stats?.ath ?: 0.0, currency) else "—")
-        StatRow("Trading activity", stats?.activity ?: "—")
-        StatRow("Typical hold time", stats?.holdTime ?: "—")
-        StatRow("Popularity", if ((stats?.rank ?: 0) > 0) "#${stats?.rank}" else "—")
-        StatRow("Mintable", stats?.mintable ?: "—")
-        StatRow("Holders", stats?.holders ?: "—")
-        StatRow("Network", stats?.network?.ifBlank { hit.chain }?.ifBlank { "—" } ?: "—")
-        StatRow("Contract", stats?.contract?.ifBlank { "—" } ?: "—")
+        StatRow("Market cap", moneyOrDash(cap, currency))
+        StatRow("24h volume", moneyOrDash(stats?.volume ?: 0.0, currency))
+        StatRow("Circulating supply", countOrDash(stats?.circulating ?: 0.0))
+        StatRow("All-time high", moneyOrDash(stats?.ath ?: 0.0, currency))
+        StatRow("Trading activity", textOrDash(stats?.activity ?: ""))
+        StatRow("Typical hold time", textOrDash(stats?.holdTime ?: ""))
+        StatRow("Popularity rank", if ((stats?.rank ?: 0) > 0) "#${stats?.rank}" else "—")
+        StatRow("Mintable", mintableOrDash(stats?.mintable ?: ""))
+        StatRow("Holders", countTextOrDash(stats?.holders ?: ""))
+        StatRow("Network", networkName(stats?.network?.ifBlank { hit.chain } ?: hit.chain))
+        StatRow("Contract", textOrDash(stats?.contract ?: ""))
     }
 }
 
 @Composable
 private fun StatRow(label: String, value: String) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        Text(label, color = Color(0xFF8E8E93), fontSize = 14.sp, modifier = Modifier.weight(1f))
-        Text(value, color = Color.White, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    val shown = value.trim().ifBlank { "—" }
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, color = Color(0xFFA1A1AA), fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.weight(1f).widthIn(min = 12.dp))
+        Text(
+            shown,
+            color = Color(0xFFF4F4F5),
+            fontSize = 15.sp,
+            textAlign = androidx.compose.ui.text.style.TextAlign.End,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.widthIn(min = 36.dp, max = 190.dp),
+        )
+    }
+}
+
+private fun moneyOrDash(value: Double, currency: String) = if (value > 0.0 && !value.isNaN()) CompactMoney.format(value, currency) else "—"
+
+private fun countOrDash(value: Double) = if (value > 0.0 && !value.isNaN()) CompactMoney.format(value, "usd").removePrefix("$") else "—"
+
+private fun textOrDash(value: String): String {
+    val trimmed = value.trim()
+    return if (trimmed.isEmpty() || trimmed == "null") "—" else trimmed
+}
+
+private fun mintableOrDash(value: String): String = when (value.trim().lowercase()) {
+    "yes" -> "Yes"
+    "no" -> "No"
+    else -> "—"
+}
+
+private fun countTextOrDash(value: String): String {
+    val trimmed = value.trim()
+    val number = trimmed.replace(",", "").toDoubleOrNull()
+    return when {
+        number != null && number > 0.0 -> countOrDash(number)
+        trimmed.isEmpty() || trimmed == "—" -> "—"
+        else -> trimmed
+    }
+}
+
+private fun networkName(raw: String): String {
+    val key = raw.trim().lowercase()
+    if (key.isEmpty()) return "—"
+    return when (key) {
+        "sol", "solana", "solona" -> "Solana"
+        "eth", "ethereum" -> "Ethereum"
+        "base" -> "Base"
+        "bsc", "bnb", "binance-smart-chain" -> "BNB Chain"
+        "polygon", "matic", "polygon-pos" -> "Polygon"
+        "arb", "arbitrum", "arbitrum-one" -> "Arbitrum"
+        "op", "optimism", "optimistic-ethereum" -> "Optimism"
+        "avax", "avalanche" -> "Avalanche"
+        "tron", "trx" -> "Tron"
+        "sui" -> "Sui"
+        else -> raw.trim().replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
     }
 }
 
