@@ -346,43 +346,46 @@ class MarketRepository(
     private fun dexPercent(raw: Double): Double = if (kotlin.math.abs(raw) <= 1.0) raw * 100 else raw
 
     private fun memeSpark(id: String): String {
-        // CMC numeric meme coins
         if (id.startsWith("cmc-")) {
             val numeric = id.removePrefix("cmc-")
             if (numeric.all { it.isDigit() }) {
-                val oneDay = fetchCmcChart(numeric, "1D")
-                if (oneDay.isNotBlank()) return oneDay
-                val sevenDay = fetchCmcChart(numeric, "7D")
-                if (sevenDay.isNotBlank()) return sevenDay
+                val one = fetchCmcChart(numeric, "1D")
+                if (one.isNotBlank()) return one
+                val seven = fetchCmcChart(numeric, "7D")
+                if (seven.isNotBlank()) return seven
             }
         }
-        // DEX tokens — try DexScreener pairs for a rough series, or CMC if we can resolve an ID
         if (id.startsWith("dex")) {
-            val address = dexAddress(id)
-            val fromDex = runCatching { dexSpark(address) }.getOrDefault("")
-            if (fromDex.isNotBlank()) return fromDex
+            return dexSpark(id)
         }
         return ""
     }
 
-    private fun fetchCmcChart(numericId: String, range: String): String {
-        return runCatching {
-            val body = cmc("https://api.coinmarketcap.com/data-api/v3/cryptocurrency/detail/chart?id=$numericId&range=$range")
-            val points = MoonJson.json.parseToJsonElement(body).jsonObject["data"]?.jsonObject?.get("points")?.jsonObject ?: return@runCatching ""
-            val prices = points.entries.sortedBy { it.key.toLongOrNull() ?: 0L }.mapNotNull { entry ->
-                entry.value.jsonObject["v"]?.jsonArray?.firstOrNull()?.jsonPrimitive?.doubleOrNull
-            }
-            if (prices.size < 2) return@runCatching ""
-            val step = (prices.size / 36).coerceAtLeast(1)
-            prices.filterIndexed { index, _ -> index % step == 0 }.joinToString(",")
-        }.getOrDefault("")
-    }
+    private fun fetchCmcChart(numericId: String, range: String): String = runCatching {
+        val body = cmc("https://api.coinmarketcap.com/data-api/v3/cryptocurrency/detail/chart?id=$numericId&range=$range")
+        val points = MoonJson.json.parseToJsonElement(body).jsonObject["data"]?.jsonObject?.get("points")?.jsonObject ?: return@runCatching ""
+        val prices = points.entries.sortedBy { it.key.toLongOrNull() ?: 0L }.mapNotNull { entry ->
+            entry.value.jsonObject["v"]?.jsonArray?.firstOrNull()?.jsonPrimitive?.doubleOrNull
+        }
+        if (prices.size < 2) return@runCatching ""
+        val step = (prices.size / 36).coerceAtLeast(1)
+        prices.filterIndexed { index, _ -> index % step == 0 }.joinToString(",")
+    }.getOrDefault("")
 
-    private fun dexSpark(address: String): String {
-        // DexScreener doesn't give a full series on the free endpoint; return empty for now
-        // so we don't block. You can expand this later if you find a stable chart source.
-        return ""
-    }
+    private fun dexSpark(id: String): String = runCatching {
+        val address = dexAddress(id)
+        // GeckoTerminal gives a usable price series for most Solana/Base tokens
+        val network = when {
+            id.startsWith("dexsol-") -> "solana"
+            id.startsWith("dexbase-") -> "base"
+            else -> return@runCatching ""
+        }
+        val body = cmc("https://api.geckoterminal.com/api/v2/networks/$network/tokens/$address/ohlcv/hour?aggregate=1&limit=48")
+        val list = MoonJson.json.parseToJsonElement(body).jsonObject["data"]?.jsonObject?.get("attributes")?.jsonObject?.get("ohlcv_list")?.jsonArray ?: return@runCatching ""
+        val prices = list.mapNotNull { it.jsonArray.getOrNull(4)?.jsonPrimitive?.doubleOrNull }.reversed() // close prices, oldest first
+        if (prices.size < 2) return@runCatching ""
+        prices.joinToString(",")
+    }.getOrDefault("")
 
     suspend fun liveGlobal(): Triple<Double, Double, Double>? = withContext(Dispatchers.IO) { cmcGlobal() }
 
