@@ -81,10 +81,12 @@ private fun ConfigureForm(appWidgetId: Int, kind: String, onDone: (Boolean) -> U
     val graph = (context.applicationContext as MoonBagsApp).graph
     val scope = rememberCoroutineScope()
     val quotes by produceState(emptyList<QuoteEntity>()) { value = graph.db.market().quotes() }
-    var coinId by remember { mutableStateOf("") }
+    var selectedId by remember { mutableStateOf("") }
+
+    // only set a default once, and only if the user hasn't picked yet
     LaunchedEffect(quotes) {
-        if (coinId.isBlank() && quotes.isNotEmpty()) {
-            coinId = quotes.first().coinId
+        if (selectedId.isBlank() && quotes.isNotEmpty()) {
+            selectedId = quotes.first().coinId
         }
     }
     var showPrice by remember { mutableStateOf(kind == WidgetKinds.PILL || kind == WidgetKinds.SPARK || kind == WidgetKinds.SPARK_BAR) }
@@ -101,7 +103,7 @@ private fun ConfigureForm(appWidgetId: Int, kind: String, onDone: (Boolean) -> U
         if (context.contentResolver.getType(uri)?.contains("gif") == true) return@rememberLauncherForActivityResult
         path = graph.media.import(uri, "widget-$appWidgetId").path
     }
-    val coin = quotes.find { it.coinId == coinId }
+    val coin = quotes.find { it.coinId == selectedId }
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -115,9 +117,9 @@ private fun ConfigureForm(appWidgetId: Int, kind: String, onDone: (Boolean) -> U
         )
         if (kind != WidgetKinds.MCAP && kind != WidgetKinds.BOOK && kind != WidgetKinds.WATCH) {
             quotes.forEach { quote ->
-                val selected = quote.coinId == coinId
+                val selected = quote.coinId == selectedId
                 OutlinedButton(
-                    onClick = { coinId = quote.coinId },
+                    onClick = { selectedId = quote.coinId },
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.outlinedButtonColors(
                         contentColor = if (selected) Color(0xFF3DDC84) else Color.White,
@@ -172,7 +174,7 @@ private fun ConfigureForm(appWidgetId: Int, kind: String, onDone: (Boolean) -> U
                         WidgetConfigEntity(
                             appWidgetId = appWidgetId,
                             kind = kind,
-                            coinId = coinId,
+                            coinId = selectedId,
                             showPrice = showPrice,
                             backgroundPath = path,
                             scrim = scrim,

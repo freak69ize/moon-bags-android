@@ -191,7 +191,7 @@ fun render(
             up = (coin?.change24h ?: 0.0) >= 0,
             title = if (config.coinId.startsWith("cmc-")) coin?.name ?: "Meme" else coin?.symbol ?: "COIN",
             lines = emptyList(),
-            spark = if (config.coinId.startsWith("cmc-")) parseSpark(coin?.sparkline) else emptyList(),
+            spark = parseSpark(coin?.sparkline),
             background = background,
             scrim = config.scrim,
             hidden = hidden,
