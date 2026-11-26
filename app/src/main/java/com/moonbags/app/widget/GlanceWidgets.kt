@@ -365,7 +365,17 @@ private fun clipToWidget(source: Bitmap, width: Int, height: Int, radius: Float)
 }
 
 @Composable
-private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = true, tapBody: Boolean = true, clipBackground: Boolean = false, contentPadding: androidx.compose.ui.unit.Dp = 16.dp, showRefresh: Boolean = true, body: @Composable ColumnScope.() -> Unit) {
+private fun Chrome(
+    snap: WidgetSnap,
+    eye: Boolean = false,
+    showTitle: Boolean = true,
+    tapBody: Boolean = true,
+    clipBackground: Boolean = false,
+    contentPadding: androidx.compose.ui.unit.Dp = 16.dp,
+    showRefresh: Boolean = true,
+    underlay: @Composable () -> Unit = {},
+    body: @Composable ColumnScope.() -> Unit,
+) {
     val context = LocalContext.current
     val open = launchAction(context, snap.tapPackage)
     val size = LocalSize.current
@@ -383,7 +393,12 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = 
         cornerPx,
     )
     val plate = snap.background?.let { raw -> clipToWidget(raw, widthPx, heightPx, cornerPx) }
-    Box(modifier = GlanceModifier.fillMaxSize().cornerRadius(cornerDp.dp)) {
+    Box(
+        modifier = GlanceModifier
+            .fillMaxSize()
+            .cornerRadius(cornerDp.dp)
+            .border(snap.strokeDp.dp, ColorProvider(snap.border)),
+    ) {
         if (plate != null) {
             Image(provider = ImageProvider(plate), contentDescription = null, modifier = GlanceModifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
         } else if (snap.acrylic && snap.alpha > 0.004f) {
@@ -391,6 +406,7 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = 
         } else if (snap.alpha > 0.004f && snap.fill.alpha > 0.004f) {
             Box(modifier = GlanceModifier.fillMaxSize().background(ColorProvider(snap.fill.copy(alpha = snap.alpha)))) {}
         }
+        underlay()
         Image(provider = ImageProvider(frame), contentDescription = null, modifier = GlanceModifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
         Column(modifier = GlanceModifier.fillMaxSize().padding(contentPadding)) {
             if (showTitle) {
@@ -416,6 +432,8 @@ private fun Chrome(snap: WidgetSnap, eye: Boolean = false, showTitle: Boolean = 
         }
     }
 }
+
+private fun GlanceModifier.border(width: androidx.compose.ui.unit.Dp, color: ColorProvider): GlanceModifier = this
 
 private fun launchAction(context: Context, pkg: String): Action? {
     if (pkg.isBlank()) return null
@@ -571,8 +589,8 @@ class SparklineWidget : GlanceAppWidget() {
         provideContent {
             val size = LocalSize.current
             val density = LocalContext.current.resources.displayMetrics.density
-            val chartW = (size.width.value * density).toInt().coerceAtLeast(32)
-            val chartH = (size.height.value * density).toInt().coerceAtLeast(32)
+            val chartW = minOf(512, (size.width.value * density).toInt().coerceAtLeast(32))
+            val chartH = minOf(512, (size.height.value * density).toInt().coerceAtLeast(32))
             val chart = sparkBitmap(snap.spark, snap.up, chartW, chartH, 2.5f)
             val height = size.height
             val nameSize = when {
@@ -580,7 +598,7 @@ class SparklineWidget : GlanceAppWidget() {
                 height > 260.dp -> 34.sp
                 else -> 22.sp
             }
-            Box(modifier = GlanceModifier.fillMaxSize().cornerRadius(snap.cornerDp.dp)) {
+            Chrome(snap, showTitle = false, tapBody = false, showRefresh = false, contentPadding = 0.dp, underlay = {
                 if (snap.spark.size > 1) {
                     Image(
                         provider = ImageProvider(chart),
@@ -589,6 +607,7 @@ class SparklineWidget : GlanceAppWidget() {
                         contentScale = ContentScale.FillBounds,
                     )
                 }
+            }) {
                 Column(modifier = GlanceModifier.fillMaxSize().padding(12.dp)) {
                     Text(snap.title, style = TextStyle(color = ColorProvider(White), fontSize = 11.sp, fontWeight = FontWeight.Medium))
                     Text(snap.primary, style = TextStyle(color = ColorProvider(Paper), fontSize = nameSize, fontWeight = FontWeight.Bold))
@@ -618,10 +637,10 @@ class SparklineBarWidget : GlanceAppWidget() {
         provideContent {
             val size = LocalSize.current
             val density = LocalContext.current.resources.displayMetrics.density
-            val chartW = (size.width.value * density).toInt().coerceAtLeast(32)
-            val chartH = (size.height.value * density).toInt().coerceAtLeast(32)
+            val chartW = minOf(512, (size.width.value * density).toInt().coerceAtLeast(32))
+            val chartH = minOf(512, (size.height.value * density).toInt().coerceAtLeast(32))
             val chart = sparkBitmap(snap.spark, snap.up, chartW, chartH, 2f)
-            Box(modifier = GlanceModifier.fillMaxSize().cornerRadius(snap.cornerDp.dp)) {
+            Chrome(snap, showTitle = false, tapBody = false, showRefresh = false, contentPadding = 0.dp, underlay = {
                 if (snap.spark.size > 1) {
                     Image(
                         provider = ImageProvider(chart),
@@ -630,6 +649,7 @@ class SparklineBarWidget : GlanceAppWidget() {
                         contentScale = ContentScale.FillBounds,
                     )
                 }
+            }) {
                 Column(modifier = GlanceModifier.fillMaxSize().padding(8.dp)) {
                     Text(snap.title, style = TextStyle(color = ColorProvider(White), fontSize = 8.8.sp, fontWeight = FontWeight.Medium), maxLines = 1)
                     Text(snap.primary, style = TextStyle(color = ColorProvider(Paper), fontSize = 14.4.sp, fontWeight = FontWeight.Bold), maxLines = 1)
