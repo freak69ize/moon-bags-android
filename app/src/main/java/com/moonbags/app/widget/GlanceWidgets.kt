@@ -478,37 +478,41 @@ class TotalMarketCapWidget : GlanceAppWidget() {
         provideContent {
             val size = LocalSize.current
             val density = LocalContext.current.resources.displayMetrics.density
-            val open = launchAction(LocalContext.current, snap.tapPackage)
-            val chartW = (size.width.value * density).toInt().coerceAtLeast(32)
-            val chartH = ((size.height.value - 52f) * density).toInt().coerceAtLeast(24)
+            val chartW = minOf(512, (size.width.value * density).toInt().coerceAtLeast(32))
+            val chartH = minOf(512, (size.height.value * density).toInt().coerceAtLeast(32))
             val chart = sparkBitmap(snap.spark, snap.up, chartW, chartH, 2f)
-            Chrome(snap, showTitle = false, tapBody = false, showRefresh = false, contentPadding = 8.dp) {
-                Column(modifier = GlanceModifier.fillMaxSize()) {
-                    Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            snap.primary,
-                            modifier = if (open != null) GlanceModifier.clickable(open) else GlanceModifier,
-                            style = TextStyle(color = ColorProvider(Paper), fontSize = 14.4.sp, fontWeight = FontWeight.Bold),
-                            maxLines = 1,
-                        )
-                        Text(
-                            "  " + snap.secondary,
-                            modifier = if (open != null) GlanceModifier.clickable(open) else GlanceModifier,
-                            style = TextStyle(color = ColorProvider(if (snap.up) UpColor else DownColor), fontSize = 12.sp, fontWeight = FontWeight.Medium),
-                            maxLines = 1,
-                        )
-                    }
+            val open = launchAction(LocalContext.current, snap.tapPackage)
+            Chrome(
+                snap,
+                showTitle = false,
+                tapBody = false,
+                showRefresh = false,
+                contentPadding = 0.dp,
+                underlay = {
                     if (snap.spark.size > 1) {
-                        val chartMod = GlanceModifier.fillMaxWidth().defaultWeight().padding(top = 4.dp).background(ImageProvider(R.drawable.widget_press_clear))
                         Image(
                             provider = ImageProvider(chart),
                             contentDescription = "Market trend",
-                            modifier = if (open != null) chartMod.clickable(open) else chartMod,
+                            modifier = GlanceModifier.fillMaxSize(),
                             contentScale = ContentScale.FillBounds,
                         )
-                    } else {
-                        Spacer(modifier = GlanceModifier.defaultWeight())
                     }
+                },
+            ) {
+                Column(modifier = GlanceModifier.fillMaxSize().padding(8.dp)) {
+                    Text(
+                        snap.primary,
+                        modifier = if (open != null) GlanceModifier.clickable(open) else GlanceModifier,
+                        style = TextStyle(color = ColorProvider(Paper), fontSize = 14.4.sp, fontWeight = FontWeight.Bold),
+                        maxLines = 1,
+                    )
+                    Text(
+                        snap.secondary,
+                        modifier = if (open != null) GlanceModifier.clickable(open) else GlanceModifier,
+                        style = TextStyle(color = ColorProvider(if (snap.up) UpColor else DownColor), fontSize = 12.sp, fontWeight = FontWeight.Medium),
+                        maxLines = 1,
+                    )
+                    Spacer(modifier = GlanceModifier.defaultWeight())
                     Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(snap.refreshNote, style = TextStyle(color = ColorProvider(Color(0xFFEFE8DC).copy(alpha = 0.65f)), fontSize = 8.sp))
                         Spacer(modifier = GlanceModifier.defaultWeight())
