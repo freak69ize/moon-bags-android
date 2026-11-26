@@ -39,11 +39,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.drag
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -479,6 +475,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
             }
         }
         detail?.let { hit ->
+            Box(Modifier.zIndex(4f).fillMaxSize()) {
             CoinDetailPage(hit, currency, vm, onBack = { detail = null }, onAdd = {
                 vm.addWatched(hit)
                 detail = null
@@ -489,6 +486,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
                     anim.animateTo(0f, tween(260, easing = SheetEase)) { lift = value }
                 }
             })
+            }
         }
     }
 }
@@ -613,38 +611,58 @@ private fun WatchedRow(
                 .background(card, shape)
                 .padding(horizontal = 12.dp, vertical = 12.dp)
                 .pointerInput(quote.coinId) {
-                    detectDragGesturesAfterLongPress(
-                        onDragStart = { onGrab() },
-                        onDragEnd = onDrop,
-                        onDragCancel = onDrop,
-                    ) { change, amount ->
-                        change.consume()
-                        onSlide(amount.y)
-                    }
-                }
-                .pointerInput(quote.coinId, dragging) {
-                    if (dragging) return@pointerInput
-                    detectTapGestures(onTap = { onOpen() })
-                }
-                .pointerInput(quote.coinId, dragging) {
-                    if (dragging) return@pointerInput
-                    detectHorizontalDragGestures(
-                        onDragEnd = {
-                            drag = if (drag > reveal * 0.35f) reveal else 0f
-                            if (drag == 0f) crossed = false
-                        },
-                        onHorizontalDrag = { _, amount ->
-                            val next = (drag + amount).coerceIn(0f, reveal)
-                            if (!crossed && next >= reveal * 0.35f) {
-                                crossed = true
-                                view.performHapticFeedback(
-                                    if (Build.VERSION.SDK_INT >= 30) android.view.HapticFeedbackConstants.CONFIRM else android.view.HapticFeedbackConstants.LONG_PRESS,
-                                )
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val start = down.position
+                        val slop = viewConfiguration.touchSlop
+                        val outcome = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == down.id } ?: return@withTimeoutOrNull "up"
+                                if (!change.pressed) return@withTimeoutOrNull "up"
+                                val delta = change.position - start
+                                if (delta.getDistance() > slop) {
+                                    change.consume()
+                                    return@withTimeoutOrNull if (kotlin.math.abs(delta.x) > kotlin.math.abs(delta.y)) "side" else "cancel"
+                                }
                             }
-                            if (next < reveal * 0.35f) crossed = false
-                            drag = next
-                        },
-                    )
+                            @Suppress("UNREACHABLE_CODE")
+                            "up"
+                        }
+                        when (outcome) {
+                            "up" -> onOpen()
+                            "side" -> {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                    val next = (change.position.x - start.x).coerceIn(0f, reveal)
+                                    if (!crossed && next >= reveal * 0.35f) {
+                                        crossed = true
+                                        view.performHapticFeedback(
+                                            if (Build.VERSION.SDK_INT >= 30) android.view.HapticFeedbackConstants.CONFIRM else android.view.HapticFeedbackConstants.LONG_PRESS,
+                                        )
+                                    }
+                                    if (next < reveal * 0.35f) crossed = false
+                                    drag = next
+                                    change.consume()
+                                    if (!change.pressed) break
+                                }
+                                drag = if (drag > reveal * 0.35f) reveal else 0f
+                                if (drag == 0f) crossed = false
+                            }
+                            null -> {
+                                onGrab()
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                    onSlide(change.position.y - change.previousPosition.y)
+                                    change.consume()
+                                    if (!change.pressed) break
+                                }
+                                onDrop()
+                            }
+                        }
+                    }
                 },
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -698,12 +716,17 @@ private fun CoinDetailPage(hit: SearchCoinDto, currency: String, vm: MoonViewMod
     LaunchedEffect(hit.id) { stats = runCatching { vm.coinStats(hit) }.getOrNull() }
     val price = stats?.price?.takeIf { it > 0 } ?: hit.price
     val cap = stats?.marketCap?.takeIf { it > 0 } ?: hit.marketCap
-    val series = when {
-        capAxis && !stats?.caps.isNullOrEmpty() -> stats?.caps.orEmpty()
-        !stats?.prices.isNullOrEmpty() -> stats?.prices.orEmpty()
+    val priceSeries = when {
+        (stats?.prices?.size ?: 0) >= 2 -> stats?.prices.orEmpty()
         else -> hit.spark.split(",").mapNotNull { it.toDoubleOrNull() }
     }
-    val scrubIndex = if (scrub < 0f || series.isEmpty()) -1 else (scrub * (series.size - 1)).toInt().coerceIn(0, series.lastIndex)
+    val chartSeries = when {
+        capAxis && (stats?.caps?.size ?: 0) >= 2 -> stats?.caps.orEmpty()
+        priceSeries.size >= 2 -> priceSeries
+        else -> emptyList()
+    }
+    val loading = stats == null
+    val scrubIndex = if (scrub < 0f || chartSeries.isEmpty()) -1 else (scrub * (chartSeries.size - 1)).toInt().coerceIn(0, chartSeries.lastIndex)
     Column(Modifier.fillMaxSize().background(Color(0xFF0E0E10)).statusBarsPadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack) { Text("Back", color = Color.White) }
@@ -713,16 +736,32 @@ private fun CoinDetailPage(hit: SearchCoinDto, currency: String, vm: MoonViewMod
             }
             TextButton(onClick = onAdd) { Text("Add", color = Color.White) }
         }
-        Text(if (capAxis) CompactMoney.format(if (scrubIndex >= 0) series[scrubIndex] else cap, currency) else CompactMoney.price(if (scrubIndex >= 0) series[scrubIndex] else price, currency), color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Bold)
+        Text(CompactMoney.price(if (scrubIndex >= 0 && !capAxis) chartSeries[scrubIndex] else price, currency), color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Bold)
         Text((if (hit.change24h >= 0) "+" else "") + String.format("%.2f%%", hit.change24h), color = if (hit.change24h >= 0) Color(0xFF3DDC84) else Color(0xFFFF6B81))
-        MiniSpark(if (series.size >= 2) series.joinToString(",") else "1,1", hit.change24h >= 0, Modifier.fillMaxWidth().height(48.dp))
+        Box(Modifier.fillMaxWidth().height(64.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF16161A)), contentAlignment = Alignment.Center) {
+            if (priceSeries.size >= 2) {
+                MiniSpark(priceSeries.joinToString(","), hit.change24h >= 0, Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 10.dp))
+            } else {
+                Text(if (loading) "Loading sparkline" else "No recent prices", color = Color(0xFF8E8E93), fontSize = 13.sp)
+            }
+        }
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(selected = !candles, onClick = { candles = false }, label = { Text("Line") })
             FilterChip(selected = candles, onClick = { candles = true }, label = { Text("Candles") })
             FilterChip(selected = !capAxis, onClick = { capAxis = false }, label = { Text("Price") })
             FilterChip(selected = capAxis, onClick = { capAxis = true }, label = { Text("Market cap") })
         }
-        DetailChart(series, hit.change24h >= 0, candles, scrub) { scrub = it }
+        Box(Modifier.fillMaxWidth().height(280.dp)) {
+            DetailChart(chartSeries, hit.change24h >= 0, candles, scrub) { scrub = it }
+            if (chartSeries.size < 2) {
+                Text(
+                    if (loading) "Loading chart" else "No history yet",
+                    color = Color(0xFF8E8E93),
+                    fontSize = 14.sp,
+                    modifier = Modifier.align(Alignment.Center),
+                )
+            }
+        }
         StatRow("Market cap", CompactMoney.format(cap, currency))
         StatRow("24h volume", if ((stats?.volume ?: 0.0) > 0) CompactMoney.format(stats?.volume ?: 0.0, currency) else "—")
         StatRow("Circulating supply", if ((stats?.circulating ?: 0.0) > 0) CompactMoney.format(stats?.circulating ?: 0.0, "usd").removePrefix("$") else "—")
