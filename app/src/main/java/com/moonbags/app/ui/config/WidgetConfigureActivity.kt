@@ -82,7 +82,8 @@ private fun ConfigureForm(appWidgetId: Int, kind: String, onDone: (Boolean) -> U
     val scope = rememberCoroutineScope()
     val allQuotes by produceState(emptyList<QuoteEntity>()) { value = graph.db.market().quotes() }
     val settings by produceState(com.moonbags.app.data.settings.UserSettings()) { value = graph.settings.flow.first() }
-    val quotes = allQuotes.filter { it.currency.equals(settings.currency, true) }
+    val watchIds = settings.watchIds.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+    val quotes = allQuotes.filter { it.coinId in watchIds && it.currency.equals(settings.currency, true) }
 
     var selectedId by remember { mutableStateOf("") }
 
@@ -191,9 +192,8 @@ private fun ConfigureForm(appWidgetId: Int, kind: String, onDone: (Boolean) -> U
                             alpha = alpha,
                         ),
                     )
-                    kotlinx.coroutines.delay(250)
+                    kotlinx.coroutines.delay(150)
                     updateWidget(context, kind, appWidgetId)
-                    updateAllWidgets(context)
                     onDone(true)
                 }
             },
