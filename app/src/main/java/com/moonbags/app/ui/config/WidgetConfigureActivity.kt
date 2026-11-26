@@ -179,6 +179,10 @@ private fun ConfigureForm(appWidgetId: Int, kind: String, onDone: (Boolean) -> U
             onClick = {
                 val chosen = selectedId.ifBlank { quotes.firstOrNull()?.coinId ?: "bitcoin" }
                 scope.launch {
+                    context.getSharedPreferences("widget_coins", android.content.Context.MODE_PRIVATE)
+                        .edit()
+                        .putString("coin_$appWidgetId", chosen)
+                        .apply()
                     graph.settings.update { it.copy(radiusDp = radius.toInt().coerceIn(0, 36)) }
                     graph.db.widgets().upsert(
                         WidgetConfigEntity(
@@ -192,7 +196,7 @@ private fun ConfigureForm(appWidgetId: Int, kind: String, onDone: (Boolean) -> U
                             alpha = alpha,
                         ),
                     )
-                    kotlinx.coroutines.delay(150)
+                    kotlinx.coroutines.delay(300)
                     updateWidget(context, kind, appWidgetId)
                     onDone(true)
                 }
