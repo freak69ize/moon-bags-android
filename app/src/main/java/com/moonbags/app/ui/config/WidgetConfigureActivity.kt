@@ -40,6 +40,7 @@ import com.moonbags.app.data.media.samsungGalleryIntent
 import com.moonbags.app.domain.CompactMoney
 import com.moonbags.app.ui.theme.MoonTheme
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -80,10 +81,12 @@ private fun ConfigureForm(appWidgetId: Int, kind: String, onDone: (Boolean) -> U
     val context = androidx.compose.ui.platform.LocalContext.current
     val graph = (context.applicationContext as MoonBagsApp).graph
     val scope = rememberCoroutineScope()
-    val quotes by produceState(emptyList<QuoteEntity>()) { value = graph.db.market().quotes() }
+    val allQuotes by produceState(emptyList<QuoteEntity>()) { value = graph.db.market().quotes() }
+    val settings by produceState(com.moonbags.app.data.settings.UserSettings()) { value = graph.settings.flow.first() }
+    val quotes = allQuotes.filter { it.currency.equals(settings.currency, true) }
+
     var selectedId by remember { mutableStateOf("") }
 
-    // only set a default once, and only if the user hasn't picked yet
     LaunchedEffect(quotes) {
         if (selectedId.isBlank() && quotes.isNotEmpty()) {
             selectedId = quotes.first().coinId
@@ -103,7 +106,7 @@ private fun ConfigureForm(appWidgetId: Int, kind: String, onDone: (Boolean) -> U
         if (context.contentResolver.getType(uri)?.contains("gif") == true) return@rememberLauncherForActivityResult
         path = graph.media.import(uri, "widget-$appWidgetId").path
     }
-    val coin = quotes.find { it.coinId == selectedId }
+    val selected = quotes.find { it.coinId == selectedId }
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -111,25 +114,27 @@ private fun ConfigureForm(appWidgetId: Int, kind: String, onDone: (Boolean) -> U
         Text("Place widget", color = Color.White, style = MaterialTheme.typography.headlineMedium)
         Text(kindLabel(kind), color = Color.White)
         Text(
-            if (kind == WidgetKinds.MCAP) "Total market cap" else CompactMoney.price(coin?.price ?: 0.0, "usd"),
+            if (kind == WidgetKinds.MCAP) "Total market cap" else CompactMoney.price(selected?.price ?: 0.0, "usd"),
             color = Color.White,
             style = MaterialTheme.typography.displaySmall,
         )
+        Text(
+            "Selected: ${selected?.symbol ?: "none"} · ${selected?.name ?: ""}",
+            color = Color(0xFF3DDC84),
+            style = MaterialTheme.typography.titleMedium,
+        )
+
         if (kind != WidgetKinds.MCAP && kind != WidgetKinds.BOOK && kind != WidgetKinds.WATCH) {
             quotes.forEach { quote ->
-                val selected = quote.coinId == selectedId
-                OutlinedButton(
-                    onClick = { selectedId = quote.coinId },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = if (selected) Color(0xFF3DDC84) else Color.White,
-                    ),
-                ) {
-                    Text(
-                        (if (selected) "✓ " else "") + quote.symbol + " · " + quote.name,
-                        color = if (selected) Color(0xFF3DDC84) else Color.White,
-                    )
-                }
+                val isSelected = quote.coinId == selectedId
+                Text(
+                    (if (isSelected) "✓ " else "") + quote.symbol + " · " + quote.name,
+                    color = if (isSelected) Color(0xFF3DDC84) else Color.White,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { selectedId = quote.coinId }
+                        .padding(vertical = 10.dp),
+                )
             }
         }
         if (kind == WidgetKinds.TILE) {
@@ -170,11 +175,12 @@ private fun ConfigureForm(appWidgetId: Int, kind: String, onDone: (Boolean) -> U
             onClick = {
                 scope.launch {
                     graph.settings.update { it.copy(radiusDp = radius.toInt().coerceIn(0, 36)) }
+                    val coinToSave = selectedId.ifBlank { quotes.firstOrNull()?.coinId ?: "bitcoin" }
                     graph.db.widgets().upsert(
                         WidgetConfigEntity(
                             appWidgetId = appWidgetId,
                             kind = kind,
-                            coinId = selectedId,
+                            coinId = coinToSave,
                             showPrice = showPrice,
                             backgroundPath = path,
                             scrim = scrim,
