@@ -464,9 +464,11 @@ class MarketRepository(
             rows.map { row ->
                 async {
                     val fresh = memeLive(row.coinId)
+                    val spark = if (row.coinId.startsWith("cmc-")) memeSpark(row.coinId).ifBlank { row.sparkline } else row.sparkline
                     row.copy(
                         price = fresh?.price?.takeIf { it > 0 } ?: row.price,
                         change24h = fresh?.change24h ?: row.change24h,
+                        sparkline = spark,
                         imageUrl = logoFor(row.coinId, fresh?.image?.ifBlank { row.imageUrl.orEmpty() } ?: row.imageUrl.orEmpty()).ifBlank { row.imageUrl },
                         currency = fiat,
                         updatedAt = now,
