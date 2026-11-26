@@ -752,10 +752,17 @@ private fun tapePrice(price: Double, currency: String) = CompactMoney.price(pric
 @Composable
 private fun CoinDetailPage(hit: SearchCoinDto, currency: String, vm: MoonViewModel, onBack: () -> Unit, onAdd: () -> Unit) {
     var stats by remember(hit.id) { mutableStateOf<com.moonbags.app.data.repo.CoinStats?>(null) }
+    var failed by remember(hit.id) { mutableStateOf<String?>(null) }
     var candles by remember(hit.id) { mutableStateOf(false) }
     var capAxis by remember(hit.id) { mutableStateOf(false) }
     var scrub by remember(hit.id) { mutableFloatStateOf(-1f) }
-    LaunchedEffect(hit.id) { stats = runCatching { vm.coinStats(hit) }.getOrNull() }
+    LaunchedEffect(hit.id) {
+        failed = null
+        stats = runCatching { vm.coinStats(hit) }
+            .onFailure { failed = it.message ?: "Could not load this coin" }
+            .getOrNull()
+            ?.also { if (it.error.isNotBlank()) failed = it.error }
+    }
     val price = stats?.price?.takeIf { it > 0 } ?: hit.price
     val cap = stats?.marketCap?.takeIf { it > 0 } ?: hit.marketCap
     val priceSeries = when {
@@ -767,7 +774,12 @@ private fun CoinDetailPage(hit: SearchCoinDto, currency: String, vm: MoonViewMod
         priceSeries.size >= 2 -> priceSeries
         else -> emptyList()
     }
-    val loading = stats == null
+    val loading = stats == null && failed == null
+    val chartNote = when {
+        priceSeries.size >= 2 -> null
+        loading -> "Loading chart"
+        else -> failed ?: "No price history returned"
+    }
     val scrubIndex = if (scrub < 0f || chartSeries.isEmpty()) -1 else (scrub * (chartSeries.size - 1)).toInt().coerceIn(0, chartSeries.lastIndex)
     Column(Modifier.fillMaxSize().background(Color(0xFF0E0E10)).statusBarsPadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -784,7 +796,7 @@ private fun CoinDetailPage(hit: SearchCoinDto, currency: String, vm: MoonViewMod
             if (priceSeries.size >= 2) {
                 MiniSpark(priceSeries.joinToString(","), hit.change24h >= 0, Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 10.dp))
             } else {
-                Text(if (loading) "Loading sparkline" else "No recent prices", color = Color(0xFF8E8E93), fontSize = 13.sp)
+                Text(chartNote ?: "Loading chart", color = Color(0xFF8E8E93), fontSize = 13.sp)
             }
         }
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -794,13 +806,14 @@ private fun CoinDetailPage(hit: SearchCoinDto, currency: String, vm: MoonViewMod
             FilterChip(selected = capAxis, onClick = { capAxis = true }, label = { Text("Market cap") })
         }
         Box(Modifier.fillMaxWidth().height(280.dp)) {
-            DetailChart(chartSeries, hit.change24h >= 0, candles, scrub) { scrub = it }
+            DetailChart(chartSeries, if (capAxis) emptyList() else stats?.candles.orEmpty(), hit.change24h >= 0, candles, scrub) { scrub = it }
             if (chartSeries.size < 2) {
                 Text(
-                    if (loading) "Loading chart" else "No history yet",
+                    chartNote ?: "Loading chart",
                     color = Color(0xFF8E8E93),
                     fontSize = 14.sp,
-                    modifier = Modifier.align(Alignment.Center),
+                    modifier = Modifier.align(Alignment.Center).padding(horizontal = 24.dp),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 )
             }
         }
@@ -883,7 +896,7 @@ private fun networkName(raw: String): String {
 }
 
 @Composable
-private fun DetailChart(values: List<Double>, up: Boolean, candles: Boolean, scrub: Float, onScrub: (Float) -> Unit) {
+private fun DetailChart(values: List<Double>, bars: List<com.moonbags.app.data.repo.Ohlc>, up: Boolean, candles: Boolean, scrub: Float, onScrub: (Float) -> Unit) {
     val color = if (up) Color(0xFF3DDC84) else Color(0xFFFF6B81)
     Canvas(
         Modifier
@@ -902,9 +915,9 @@ private fun DetailChart(values: List<Double>, up: Boolean, candles: Boolean, scr
                 }
             },
     ) {
-        if (values.size < 2) return@Canvas
-        val min = values.min()
-        val max = values.max().let { if (it == min) it + 1 else it }
+        if (values.size < 2 && bars.size < 2) return@Canvas
+        val min = (if (candles && bars.size >= 2) bars.minOf { it.low } else values.min())
+        val max = (if (candles && bars.size >= 2) bars.maxOf { it.high } else values.max()).let { if (it == min) it + 1 else it }
         val left = 8.dp.toPx()
         val right = size.width - 8.dp.toPx()
         val top = 12.dp.toPx()
@@ -919,20 +932,18 @@ private fun DetailChart(values: List<Double>, up: Boolean, candles: Boolean, scr
             }
             drawPath(path, color, style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
         } else {
-            val group = (values.size / 28).coerceAtLeast(1)
-            val chunks = values.chunked(group)
+            val chunks = if (bars.size >= 2) bars else {
+                val group = (values.size / 28).coerceAtLeast(1)
+                values.chunked(group).map { chunk -> com.moonbags.app.data.repo.Ohlc(chunk.first(), chunk.max(), chunk.min(), chunk.last()) }
+            }
             val slot = (right - left) / chunks.size.coerceAtLeast(1)
-            chunks.forEachIndexed { index, chunk ->
-                val open = chunk.first()
-                val close = chunk.last()
-                val high = chunk.max()
-                val low = chunk.min()
+            chunks.forEachIndexed { index, candle ->
                 val x = left + index * slot + slot / 2f
-                val rising = close >= open
+                val rising = candle.close >= candle.open
                 val paint = if (rising) Color(0xFF3DDC84) else Color(0xFFFF6B81)
-                drawLine(paint, Offset(x, yOf(high)), Offset(x, yOf(low)), strokeWidth = 1.5.dp.toPx())
-                val bodyTop = yOf(maxOf(open, close))
-                val bodyBottom = yOf(minOf(open, close)).coerceAtLeast(bodyTop + 1f)
+                drawLine(paint, Offset(x, yOf(candle.high)), Offset(x, yOf(candle.low)), strokeWidth = 1.5.dp.toPx())
+                val bodyTop = yOf(maxOf(candle.open, candle.close))
+                val bodyBottom = yOf(minOf(candle.open, candle.close)).coerceAtLeast(bodyTop + 1f)
                 drawRect(paint, topLeft = Offset(x - slot * 0.28f, bodyTop), size = androidx.compose.ui.geometry.Size(slot * 0.56f, bodyBottom - bodyTop))
             }
         }

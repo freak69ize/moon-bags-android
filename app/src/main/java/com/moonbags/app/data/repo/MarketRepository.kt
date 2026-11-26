@@ -22,7 +22,9 @@ import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 
 class MarketRepository(
@@ -501,21 +503,63 @@ class MarketRepository(
 
     suspend fun coinStats(hit: SearchCoinDto): CoinStats = withContext(Dispatchers.IO) {
         val prices = hit.spark.split(",").mapNotNull { it.toDoubleOrNull() }
-        val base = CoinStats(
+        var current = CoinStats(
             price = hit.price,
             marketCap = hit.marketCap,
             network = hit.chain,
+            contract = contractOf(hit),
             prices = prices,
-            caps = if (hit.price > 0 && hit.marketCap > 0) prices.map { hit.marketCap * (it / hit.price) } else emptyList(),
+            caps = scaledCaps(prices, hit.price, hit.marketCap),
+            candles = candlesFrom(prices),
         )
-        val numeric = hit.id.removePrefix("cmc-")
-        val loaded = when {
-            hit.id.startsWith("cmc-") && numeric.all { it.isDigit() } -> cmcStats(numeric, base)
-            hit.id.startsWith("dex") -> dexStats(hit, base)
-            else -> geckoStats(hit.id, base)
+        val failures = mutableListOf<String>()
+        fun take(block: () -> CoinStats?) {
+            runCatching { block() }
+                .onSuccess { next -> if (next != null) current = mergeStats(current, next) }
+                .onFailure { error -> failures += error.message?.ifBlank { null } ?: "Request failed" }
         }
-        loaded ?: base
+        val numeric = hit.id.removePrefix("cmc-")
+        when {
+            hit.id.startsWith("cmc-") && numeric.all { it.isDigit() } -> take { cmcStats(numeric, current) }
+            !hit.id.startsWith("dex") && hit.id.isNotBlank() -> take { geckoStats(hit.id, current) }
+        }
+        val contract = current.contract.ifBlank { contractOf(hit) }
+        val platform = geckoPlatform(hit)
+        if (contract.isNotBlank() && platform.isNotBlank() && current.prices.size < 2) {
+            take { geckoByContract(platform, contract, current) }
+        }
+        if (current.prices.size < 2 && contract.isNotBlank()) {
+            take { terminalHistory(geckoTerminalNetwork(platform, hit), contract, current) }
+        }
+        if (isSolana(hit, current.network) && contract.isNotBlank()) {
+            take { solanaMint(contract, current) }
+            take { terminalHolders(contract, current) }
+        }
+        val ready = current.prices.size >= 2
+        current.copy(
+            activity = "—",
+            holdTime = "—",
+            rank = 0,
+            candles = current.candles.ifEmpty { candlesFrom(current.prices) },
+            caps = current.caps.ifEmpty { scaledCaps(current.prices, current.price, current.marketCap) },
+            error = if (ready) "" else failures.lastOrNull() ?: "No price history returned",
+        )
     }
+
+    private fun mergeStats(base: CoinStats, next: CoinStats) = base.copy(
+        price = next.price.takeIf { it > 0 } ?: base.price,
+        marketCap = next.marketCap.takeIf { it > 0 } ?: base.marketCap,
+        volume = next.volume.takeIf { it > 0 } ?: base.volume,
+        circulating = next.circulating.takeIf { it > 0 } ?: base.circulating,
+        ath = next.ath.takeIf { it > 0 } ?: base.ath,
+        mintable = next.mintable.takeIf { it == "Yes" || it == "No" } ?: base.mintable,
+        holders = next.holders.takeIf { it.isNotBlank() && it != "—" } ?: base.holders,
+        network = next.network.ifBlank { base.network },
+        contract = next.contract.ifBlank { base.contract },
+        prices = next.prices.ifEmpty { base.prices },
+        caps = next.caps.ifEmpty { base.caps },
+        candles = next.candles.ifEmpty { base.candles },
+    )
 
     private fun cmcStats(id: String, base: CoinStats): CoinStats? = runCatching {
         val data = JSONObject(cmc("https://api.coinmarketcap.com/data-api/v3/cryptocurrency/detail?id=$id")).optJSONObject("data") ?: return@runCatching null
@@ -523,7 +567,6 @@ class MarketRepository(
         val platforms = data.optJSONArray("platforms")
         val platform = if (platforms != null && platforms.length() > 0) platforms.optJSONObject(0) else null
         val chart = chartSeries(id)
-        val maxSupply = stats?.optDouble("maxSupply") ?: Double.NaN
         val circulating = stats?.optDouble("circulatingSupply")?.takeIf { it > 0 && !it.isNaN() } ?: 0.0
         val ath = readPositive(stats, "highAllTime", "ath", "allTimeHigh")
             ?: readPositive(data, "highAllTime", "ath", "allTimeHigh")
@@ -535,43 +578,43 @@ class MarketRepository(
             volume = stats?.optDouble("volume24h")?.takeIf { it > 0 } ?: base.volume,
             circulating = circulating,
             ath = ath,
-            rank = data.optInt("rank", stats?.optInt("rank") ?: 0).takeIf { it > 0 } ?: base.rank,
-            mintable = mintableLabel(maxSupply, circulating),
-            holders = holders?.toLong()?.toString() ?: "—",
-            holdTime = "—",
-            activity = volumeActivity(stats?.optDouble("volume24h") ?: 0.0, stats?.optDouble("volumeYesterday") ?: 0.0),
+            holders = holders?.toLong()?.toString() ?: base.holders,
             network = platform?.optString("contractPlatform").orEmpty().ifBlank { base.network },
             contract = platform?.optString("contractAddress").orEmpty().ifBlank { base.contract },
             prices = chart.first.ifEmpty { base.prices },
             caps = chart.second.ifEmpty { base.caps },
+            candles = candlesFrom(chart.first.ifEmpty { base.prices }),
         )
     }.getOrNull()
 
     private fun geckoStats(id: String, base: CoinStats): CoinStats? = runCatching {
-        val body = cmc("https://api.coingecko.com/api/v3/coins/$id?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false&sparkline=true")
+        val body = getJson("https://api.coingecko.com/api/v3/coins/$id?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false&sparkline=true")
         val root = JSONObject(body)
         val market = root.optJSONObject("market_data") ?: return@runCatching null
         val price = market.optJSONObject("current_price")?.optDouble("usd") ?: base.price
         val cap = market.optJSONObject("market_cap")?.optDouble("usd") ?: base.marketCap
         val spark = market.optJSONObject("sparkline_7d")?.optJSONArray("price")
-        val prices = spark?.let { array -> List(array.length()) { index -> array.optDouble(index) }.filter { it > 0 } } ?: base.prices
-        val maxSupply = market.optDouble("max_supply")
         val circulating = market.optDouble("circulating_supply")
         val platforms = root.optJSONObject("platforms")
         val platformId = root.optString("asset_platform_id")
         val contract = platforms?.optString(platformId).orEmpty()
+        val chart = runCatching { geckoChart(id) }.getOrDefault(emptyList<Double>() to emptyList())
+        val prices = chart.first.ifEmpty {
+            spark?.let { array -> List(array.length()) { index -> array.optDouble(index) }.filter { it > 0 } } ?: base.prices
+        }
+        val caps = chart.second.ifEmpty { scaledCaps(prices, price, cap) }
         base.copy(
             price = price.takeIf { it > 0 } ?: base.price,
             marketCap = cap.takeIf { it > 0 } ?: base.marketCap,
             volume = market.optJSONObject("total_volume")?.optDouble("usd")?.takeIf { it > 0 } ?: base.volume,
             circulating = circulating.takeIf { it > 0 && !it.isNaN() } ?: 0.0,
             ath = market.optJSONObject("ath")?.optDouble("usd")?.takeIf { it > 0 } ?: base.ath,
-            rank = root.optInt("market_cap_rank", base.rank).takeIf { it > 0 } ?: 0,
-            mintable = mintableLabel(maxSupply, circulating),
+            mintable = base.mintable,
             network = platformId.ifBlank { base.network },
             contract = contract.ifBlank { base.contract },
             prices = prices,
-            caps = if (price > 0 && cap > 0) prices.map { cap * (it / price) } else base.caps,
+            caps = caps,
+            candles = candlesFrom(prices),
         )
     }.getOrNull()
 
@@ -590,7 +633,7 @@ class MarketRepository(
     }.getOrNull()
 
     private fun chartSeries(id: String): Pair<List<Double>, List<Double>> = runCatching {
-        val body = cmc("https://api.coinmarketcap.com/data-api/v3/cryptocurrency/detail/chart?id=$id&range=1D")
+        val body = cmc("https://api.coinmarketcap.com/data-api/v3/cryptocurrency/detail/chart?id=$id&range=7D")
         val points = MoonJson.json.parseToJsonElement(body).jsonObject["data"]?.jsonObject?.get("points")?.jsonObject ?: return@runCatching emptyList<Double>() to emptyList()
         val rows = points.entries.sortedBy { it.key.toLongOrNull() ?: 0L }.mapNotNull { entry ->
             entry.value.jsonObject["v"]?.jsonArray?.map { it.jsonPrimitive.contentOrNull?.toDoubleOrNull() ?: 0.0 }
@@ -599,6 +642,139 @@ class MarketRepository(
         val caps = rows.mapNotNull { it.getOrNull(2)?.takeIf { cap -> cap > 0 } }
         prices to caps
     }.getOrDefault(emptyList<Double>() to emptyList())
+
+    private fun geckoChart(id: String): Pair<List<Double>, List<Double>> {
+        val body = getJson("https://api.coingecko.com/api/v3/coins/$id/market_chart?vs_currency=usd&days=7")
+        val root = JSONObject(body)
+        return seriesOf(root.optJSONArray("prices")) to seriesOf(root.optJSONArray("market_caps"))
+    }
+
+    private fun geckoByContract(platform: String, address: String, base: CoinStats): CoinStats {
+        val body = getJson("https://api.coingecko.com/api/v3/coins/$platform/contract/$address")
+        val root = JSONObject(body)
+        val id = root.optString("id")
+        val merged = geckoStats(id.ifBlank { return base }, base) ?: base
+        return merged.copy(contract = address, network = merged.network.ifBlank { platform })
+    }
+
+    private fun terminalHistory(network: String, address: String, base: CoinStats): CoinStats {
+        if (network.isBlank()) error("No network for contract history")
+        val pools = getJson("https://api.geckoterminal.com/api/v2/networks/$network/tokens/$address/pools?page=1")
+        val pool = JSONObject(pools).optJSONArray("data")?.optJSONObject(0) ?: error("No pool for this token")
+        val poolId = pool.optJSONObject("attributes")?.optString("address").orEmpty()
+            .ifBlank { pool.optString("id").substringAfter("_") }
+        if (poolId.isBlank()) error("Pool address missing")
+        val bars = getJson("https://api.geckoterminal.com/api/v2/networks/$network/pools/$poolId/ohlcv/hour?aggregate=4&limit=42&currency=usd")
+        val list = JSONObject(bars).optJSONObject("data")?.optJSONObject("attributes")?.optJSONArray("ohlcv_list")
+            ?: error("No candle history")
+        val rows = List(list.length()) { index -> list.optJSONArray(index) }
+            .mapNotNull { row ->
+                if (row == null || row.length() < 5) null else Ohlc(
+                    open = row.optDouble(1),
+                    high = row.optDouble(2),
+                    low = row.optDouble(3),
+                    close = row.optDouble(4),
+                )
+            }
+            .filter { it.close > 0 }
+            .reversed()
+        if (rows.size < 2) error("Candle history was empty")
+        val prices = rows.map { it.close }
+        val token = runCatching { JSONObject(getJson("https://api.geckoterminal.com/api/v2/networks/$network/tokens/$address")).optJSONObject("data")?.optJSONObject("attributes") }.getOrNull()
+        val price = token?.optString("price_usd")?.toDoubleOrNull() ?: base.price
+        val cap = token?.optString("market_cap_usd")?.toDoubleOrNull() ?: token?.optString("fdv_usd")?.toDoubleOrNull() ?: base.marketCap
+        return base.copy(
+            price = price.takeIf { it > 0 } ?: prices.last(),
+            marketCap = cap,
+            prices = prices,
+            caps = scaledCaps(prices, price, cap),
+            candles = rows,
+            contract = address,
+            network = base.network.ifBlank { network },
+        )
+    }
+
+    private fun terminalHolders(address: String, base: CoinStats): CoinStats {
+        val body = getJson("https://api.geckoterminal.com/api/v2/networks/solana/tokens/$address/info")
+        val attributes = JSONObject(body).optJSONObject("data")?.optJSONObject("attributes") ?: return base
+        val count = attributes.optJSONObject("holders")?.optDouble("count")
+            ?: attributes.optDouble("holders_count")
+        val holders = count?.takeIf { !it.isNaN() && it > 0 }?.toLong()?.toString() ?: return base
+        return base.copy(holders = holders)
+    }
+
+    private fun solanaMint(address: String, base: CoinStats): CoinStats {
+        val payload = """{"jsonrpc":"2.0","id":1,"method":"getAccountInfo","params":["$address",{"encoding":"base64"}]}"""
+        val request = Request.Builder()
+            .url("https://api.mainnet-beta.solana.com")
+            .header("Content-Type", "application/json")
+            .post(payload.toRequestBody("application/json".toMediaType()))
+            .build()
+        val text = HttpClients.okHttp.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) error("Solana RPC ${response.code}")
+            body
+        }
+        val encoded = JSONObject(text).optJSONObject("result")?.optJSONObject("value")?.optJSONArray("data")?.optString(0)
+            ?: error("Mint account was not found")
+        val bytes = android.util.Base64.decode(encoded, android.util.Base64.DEFAULT)
+        if (bytes.size < 45) error("Mint account was too short")
+        val authority = leInt(bytes, 0)
+        var supply = 0L
+        for (index in 0 until 8) supply = supply or ((bytes[36 + index].toLong() and 0xff) shl (8 * index))
+        val decimals = bytes[44].toInt() and 0xff
+        val amount = supply.toDouble() / Math.pow(10.0, decimals.toDouble())
+        return base.copy(
+            circulating = amount.takeIf { it > 0 } ?: base.circulating,
+            mintable = if (authority == 0) "No" else "Yes",
+        )
+    }
+
+    private fun seriesOf(array: org.json.JSONArray?): List<Double> {
+        if (array == null) return emptyList()
+        return List(array.length()) { index -> array.optJSONArray(index)?.optDouble(1) ?: Double.NaN }.filter { it > 0 && !it.isNaN() }
+    }
+
+    private fun candlesFrom(prices: List<Double>): List<Ohlc> {
+        if (prices.size < 2) return emptyList()
+        val group = (prices.size / 28).coerceAtLeast(1)
+        return prices.chunked(group).map { chunk -> Ohlc(chunk.first(), chunk.max(), chunk.min(), chunk.last()) }
+    }
+
+    private fun scaledCaps(prices: List<Double>, price: Double, cap: Double): List<Double> {
+        if (prices.isEmpty() || price <= 0 || cap <= 0) return emptyList()
+        return prices.map { cap * (it / price) }
+    }
+
+    private fun contractOf(hit: SearchCoinDto): String = when {
+        hit.id.startsWith("dex") -> dexAddress(hit.id)
+        hit.id.startsWith("0x") || hit.id.length in 32..48 -> hit.id
+        else -> ""
+    }
+
+    private fun geckoPlatform(hit: SearchCoinDto): String = when {
+        hit.id.startsWith("dexsol-") || hit.chain.contains("sol", true) -> "solana"
+        hit.id.startsWith("dexbase-") || hit.chain.equals("base", true) -> "base"
+        hit.chain.equals("ethereum", true) || hit.chain.equals("eth", true) -> "ethereum"
+        else -> ""
+    }
+
+    private fun geckoTerminalNetwork(platform: String, hit: SearchCoinDto): String = when {
+        platform == "ethereum" || hit.chain.equals("eth", true) -> "eth"
+        platform.isNotBlank() -> platform
+        hit.id.startsWith("dexsol-") -> "solana"
+        hit.id.startsWith("dexbase-") -> "base"
+        else -> ""
+    }
+
+    private fun isSolana(hit: SearchCoinDto, network: String): Boolean =
+        hit.id.startsWith("dexsol-") || hit.chain.contains("sol", true) || network.contains("sol", true)
+
+    private fun leInt(bytes: ByteArray, offset: Int): Int =
+        (bytes[offset].toInt() and 0xff) or
+            ((bytes[offset + 1].toInt() and 0xff) shl 8) or
+            ((bytes[offset + 2].toInt() and 0xff) shl 16) or
+            ((bytes[offset + 3].toInt() and 0xff) shl 24)
 
     private fun mintableLabel(maxSupply: Double, circulating: Double): String = when {
         maxSupply.isNaN() -> "—"
@@ -626,6 +802,20 @@ class MarketRepository(
         val change = (today - yesterday) / yesterday * 100.0
         val tone = if (change >= 0) "Up" else "Down"
         return tone + " " + String.format(java.util.Locale.US, "%.1f%%", kotlin.math.abs(change))
+    }
+
+    private fun getJson(url: String): String {
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", "Mozilla/5.0")
+            .header("Accept", "application/json")
+            .get()
+            .build()
+        HttpClients.okHttp.newCall(request).execute().use { response ->
+            val text = response.body?.string().orEmpty()
+            if (!response.isSuccessful) error("HTTP ${response.code} from ${url.substringAfter("://").substringBefore("/")}")
+            return text
+        }
     }
 
     private fun cmc(url: String): String {
@@ -662,4 +852,8 @@ data class CoinStats(
     val contract: String = "",
     val prices: List<Double> = emptyList(),
     val caps: List<Double> = emptyList(),
+    val candles: List<Ohlc> = emptyList(),
+    val error: String = "",
 )
+
+data class Ohlc(val open: Double, val high: Double, val low: Double, val close: Double)
