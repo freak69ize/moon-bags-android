@@ -26,6 +26,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.foundation.layout.offset
@@ -58,9 +61,9 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -71,6 +74,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -90,6 +94,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
@@ -253,13 +258,35 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
     val context = LocalContext.current
     val view = androidx.compose.ui.platform.LocalView.current
     val watch = state.settings.watchIds.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+    val refreshingNow by rememberUpdatedState(state.refreshing)
+    val draggingNow by rememberUpdatedState(draggingId)
+    var pull by remember { mutableFloatStateOf(0f) }
+    val pullThreshold = with(LocalDensity.current) { 80.dp.toPx() }
+    val pullScroll = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (pull <= 0f || available.y >= 0f || refreshingNow || draggingNow != null) return Offset.Zero
+                val eat = kotlin.math.min(pull, -available.y)
+                pull -= eat
+                return Offset(0f, -eat)
+            }
+
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (refreshingNow || draggingNow != null || source != NestedScrollSource.UserInput || available.y <= 0f) return Offset.Zero
+                pull = (pull + available.y * 0.5f).coerceAtMost(pullThreshold * 1.5f)
+                return Offset(0f, available.y)
+            }
+
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (pull >= pullThreshold && draggingNow == null && !refreshingNow) vm.refresh()
+                pull = 0f
+                return Velocity.Zero
+            }
+        }
+    }
     Box(Modifier.fillMaxSize()) {
         val wide = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 720
-        PullToRefreshBox(
-            isRefreshing = state.refreshing,
-            onRefresh = { if (draggingId == null) vm.refresh() },
-            modifier = Modifier.fillMaxSize().statusBarsPadding(),
-        ) {
+        Box(Modifier.fillMaxSize().statusBarsPadding().nestedScroll(pullScroll)) {
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState(), enabled = draggingId == null).padding(bottom = 176.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -377,6 +404,13 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
             }
             }
         }
+            if (state.refreshing || pull > 4f) {
+                CircularProgressIndicator(
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp).size(28.dp),
+                    color = Color.White,
+                    strokeWidth = 2.dp,
+                )
+            }
         }
         BoxWithConstraints(Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight()) {
             val progress = lift.coerceIn(0f, 1f)
