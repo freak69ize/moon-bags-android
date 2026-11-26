@@ -525,7 +525,7 @@ private fun TapePage(state: DeskState, vm: MoonViewModel, onWidgets: () -> Unit,
         }
         detail?.let { hit ->
             Box(Modifier.zIndex(4f).fillMaxSize()) {
-            CoinDetailPage(hit, currency, vm, onBack = { detail = null }, onAdd = {
+            CoinDetailPage(hit, currency, vm, sub, onBack = { detail = null }, onAdd = {
                 vm.addWatched(hit)
                 detail = null
                 query = ""
@@ -758,7 +758,7 @@ private fun MiniSpark(raw: String, up: Boolean, modifier: Modifier) {
 private fun tapePrice(price: Double, currency: String) = CompactMoney.price(price, currency)
 
 @Composable
-private fun CoinDetailPage(hit: SearchCoinDto, currency: String, vm: MoonViewModel, onBack: () -> Unit, onAdd: () -> Unit) {
+private fun CoinDetailPage(hit: SearchCoinDto, currency: String, vm: MoonViewModel, sub: Color, onBack: () -> Unit, onAdd: () -> Unit) {
     var stats by remember(hit.id) { mutableStateOf<com.moonbags.app.data.repo.CoinStats?>(null) }
     var failed by remember(hit.id) { mutableStateOf<String?>(null) }
     var candles by remember(hit.id) { mutableStateOf(false) }
@@ -844,7 +844,7 @@ private fun CoinDetailPage(hit: SearchCoinDto, currency: String, vm: MoonViewMod
             }
         }
         Box(Modifier.fillMaxWidth().height(280.dp)) {
-            DetailChart(chartSeries, if (capAxis) emptyList() else stats?.candles.orEmpty(), hit.change24h >= 0, candles, scrub) { scrub = it }
+            DetailChart(chartSeries, if (capAxis) emptyList() else stats?.candles.orEmpty(), hit.change24h >= 0, candles, scrub, sub) { scrub = it }
             if (chartSeries.size < 2) {
                 Text(
                     chartNote ?: "Loading chart",
@@ -942,14 +942,23 @@ private fun networkName(raw: String): String {
 }
 
 @Composable
-private fun DetailChart(values: List<Double>, bars: List<com.moonbags.app.data.repo.Ohlc>, up: Boolean, candles: Boolean, scrub: Float, onScrub: (Float) -> Unit) {
-    val color = Color(0xFFFF2A2A)
+private fun DetailChart(
+    values: List<Double>,
+    bars: List<com.moonbags.app.data.repo.Ohlc>,
+    up: Boolean,
+    candles: Boolean,
+    scrub: Float,
+    outline: Color,
+    onScrub: (Float) -> Unit,
+) {
+    val color = if (up) Color(0xFF3DDC84) else Color(0xFFFF6B81)
     Canvas(
         Modifier
             .fillMaxWidth()
             .height(280.dp)
             .clip(RoundedCornerShape(16.dp))
-            .background(Color(0xFF16161A))
+            .background(Color.Black)
+            .border(1.dp, outline, RoundedCornerShape(16.dp))
             .pointerInput(values) {
                 awaitEachGesture {
                     val down = awaitFirstDown()
@@ -976,18 +985,8 @@ private fun DetailChart(values: List<Double>, bars: List<com.moonbags.app.data.r
                 val y = yOf(value)
                 if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
             }
+            // line only — no fill under it
             drawPath(path, color, style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
-            val fillPath = androidx.compose.ui.graphics.Path().apply {
-                addPath(path)
-                lineTo(right, bottom)
-                lineTo(left, bottom)
-                close()
-            }
-            drawPath(fillPath, color.copy(alpha = 0.12f))
-            for (i in 0..12) {
-                val y = top + (bottom - top) * i / 12f
-                drawLine(Color.White.copy(alpha = 0.06f), Offset(left, y), Offset(right, y), strokeWidth = 1f)
-            }
         } else {
             val chunks = if (bars.size >= 2) bars else {
                 val group = (values.size / 28).coerceAtLeast(1)
