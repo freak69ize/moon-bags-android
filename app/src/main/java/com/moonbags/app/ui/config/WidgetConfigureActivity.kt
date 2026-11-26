@@ -40,7 +40,6 @@ import com.moonbags.app.data.media.samsungGalleryIntent
 import com.moonbags.app.domain.CompactMoney
 import com.moonbags.app.ui.theme.MoonTheme
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -127,14 +126,18 @@ private fun ConfigureForm(appWidgetId: Int, kind: String, onDone: (Boolean) -> U
         if (kind != WidgetKinds.MCAP && kind != WidgetKinds.BOOK && kind != WidgetKinds.WATCH) {
             quotes.forEach { quote ->
                 val isSelected = quote.coinId == selectedId
-                Text(
-                    (if (isSelected) "✓ " else "") + quote.symbol + " · " + quote.name,
-                    color = if (isSelected) Color(0xFF3DDC84) else Color.White,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { selectedId = quote.coinId }
-                        .padding(vertical = 10.dp),
-                )
+                OutlinedButton(
+                    onClick = { selectedId = quote.coinId },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = if (isSelected) Color(0xFF3DDC84) else Color.White,
+                    ),
+                ) {
+                    Text(
+                        (if (isSelected) "✓ " else "") + quote.symbol + " · " + quote.name,
+                        color = if (isSelected) Color(0xFF3DDC84) else Color.White,
+                    )
+                }
             }
         }
         if (kind == WidgetKinds.TILE) {
@@ -173,7 +176,7 @@ private fun ConfigureForm(appWidgetId: Int, kind: String, onDone: (Boolean) -> U
         }
         Button(
             onClick = {
-                val chosen = selectedId
+                val chosen = selectedId.ifBlank { quotes.firstOrNull()?.coinId ?: "bitcoin" }
                 scope.launch {
                     graph.settings.update { it.copy(radiusDp = radius.toInt().coerceIn(0, 36)) }
                     graph.db.widgets().upsert(
@@ -188,8 +191,9 @@ private fun ConfigureForm(appWidgetId: Int, kind: String, onDone: (Boolean) -> U
                             alpha = alpha,
                         ),
                     )
-                    kotlinx.coroutines.delay(150)
+                    kotlinx.coroutines.delay(250)
                     updateWidget(context, kind, appWidgetId)
+                    updateAllWidgets(context)
                     onDone(true)
                 }
             },

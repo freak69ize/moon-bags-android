@@ -125,19 +125,20 @@ object WidgetSnapshots {
         val graph = (context.applicationContext as MoonBagsApp).graph
         val settings = graph.settings.flow.first()
         val existing = graph.db.widgets().get(id)
-        val config = existing ?: WidgetConfigEntity(
-            appWidgetId = id,
-            kind = kind,
-            coinId = "bitcoin",
-            showPrice = kind != WidgetKinds.TILE && kind != WidgetKinds.MCAP,
-            backgroundPath = null,
-            scrim = settings.scrim,
-            hidden = false,
-            alpha = 0.7f,
-        )
         if (existing == null) {
-            runCatching { graph.db.widgets().upsert(config) }
+            return WidgetSnap(
+                primary = "—",
+                secondary = "",
+                up = true,
+                title = "Pick a coin",
+                lines = emptyList(),
+                spark = emptyList(),
+                background = null,
+                scrim = 0f,
+                hidden = false,
+            )
         }
+        val config = existing
         val live = runCatching { graph.market.liveGlobal() }.getOrNull()
         val storedGlobal = graph.db.market().global(settings.currency)
         val global = if (live != null) {
