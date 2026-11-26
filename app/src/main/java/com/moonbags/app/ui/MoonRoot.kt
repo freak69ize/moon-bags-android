@@ -943,7 +943,7 @@ private fun networkName(raw: String): String {
 
 @Composable
 private fun DetailChart(values: List<Double>, bars: List<com.moonbags.app.data.repo.Ohlc>, up: Boolean, candles: Boolean, scrub: Float, onScrub: (Float) -> Unit) {
-    val color = Color(0xFFFF6B81)
+    val color = Color(0xFFFF2A2A)
     Canvas(
         Modifier
             .fillMaxWidth()
